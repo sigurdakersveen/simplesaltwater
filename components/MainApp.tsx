@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
   calcScore, scoreWind, scoreCloud, scoreTemp, scoreHour,
-  getStatus, simulateTide,
+  getStatus, simulateTide, scoreTide, tideLabel,
 } from '@/lib/fishing-score'
 import LocationSearch from './LocationSearch'
 import ThreeDayForecast from './ThreeDayForecast'
@@ -30,6 +30,7 @@ export default function MainApp({ user, initialFavorites }: {
   const [favorites, setFavorites] = useState(initialFavorites)
   const [showLog, setShowLog] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
+  const [tideWeight, setTideWeight] = useState(0.20)
   const supabase = createClient()
   const router = useRouter()
 
@@ -88,7 +89,8 @@ export default function MainApp({ user, initialFavorites }: {
         hourly.wind_speed_10m[i] ?? 10,
         hourly.cloud_cover[i] ?? 50,
         hourly.temperature_2m[i] ?? 12,
-        h
+        h,
+        tideWeight
       )
     })
     const avg = Math.round(scores.reduce((a, b) => a + b, 0) / 24)
@@ -168,8 +170,8 @@ export default function MainApp({ user, initialFavorites }: {
                     {[
                       { label: 'Vind', sub: `${dayData.wind} km/t`, pct: scoreWind(dayData.wind) },
                       { label: 'Tidspunkt', sub: activeDay === 0 ? `${nowH.toString().padStart(2, '0')}:00` : 'Snitt dag', pct: scoreHour(activeDay === 0 ? nowH : 12) },
-                      { label: 'Skydekke', sub: `${dayData.cloud}%`, pct: scoreCloud(dayData.cloud) },
                       { label: 'Temperatur', sub: `${dayData.temp}°C`, pct: scoreTemp(dayData.temp) },
+                      { label: 'Tidevann', sub: tideLabel(nowH), pct: scoreTide(nowH) },
                     ].map(c => (
                       <div key={c.label} className="flex items-center gap-3">
                         <div className="w-28 shrink-0">
@@ -184,7 +186,28 @@ export default function MainApp({ user, initialFavorites }: {
                     ))}
                   </div>
                 </div>
-
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Tidevannsvekt</p>
+                    <span className="text-xs font-medium text-gray-600">{Math.round(tideWeight * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={40}
+                    step={5}
+                    value={Math.round(tideWeight * 100)}
+                    onChange={e => setTideWeight(Number(e.target.value) / 100)}
+                    className="w-full accent-blue-500"
+                  />
+                  <div className="flex justify-between text-xs text-gray-300 mt-1">
+                    <span>Ingen effekt</span>
+                    <span>Svært viktig</span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2">
+                    Tidevann nå: <span className="font-medium text-gray-600">{tideLabel(nowH)}</span> — score: <span className="font-medium text-gray-600">{scoreTide(nowH)}</span>
+                  </p>
+                </div>
                 <div className="bg-white border border-gray-200 rounded-xl p-4">
                   <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Beste tider</p>
                   <div className="flex gap-2 flex-wrap">
