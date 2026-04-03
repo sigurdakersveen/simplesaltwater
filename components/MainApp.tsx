@@ -8,6 +8,7 @@ import {
   formatSunTime, visibilityLabel
 } from '@/lib/fishing-score'
 import { fetchMarineData } from '@/lib/marine'
+import { calcWaterQuality, type WaterQuality } from '@/lib/water-quality'
 import { fetchTideData, type TideData } from '@/lib/tide'
 import {
   getRecommendation, getFishTypeModifier, getDivingScore,
@@ -44,6 +45,7 @@ type PointData = {
   sunset: string | null
   visibilityScore: number
   hourly: HourlyData | null
+  waterQuality: WaterQuality | null
 }
 
 const SHELLFISH_STATIONS = [
@@ -103,7 +105,7 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
   const [showLog, setShowLog] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
   const [activeDay, setActiveDay] = useState(0)
-  const [activeTab, setActiveTab] = useState<'fiske' | 'tidevann' | 'skjell'>('fiske')
+  const [activeTab, setActiveTab] = useState<'fiske' | 'tidevann' | 'skjell' | 'vann'>('fiske')
   const [mapType, setMapType] = useState<MapType>('kart')
   const [fishType, setFishType] = useState<FishType>('general')
   const [appMode, setAppMode] = useState<AppMode>('fiske')
@@ -137,7 +139,9 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
           locName = gd.address?.city || gd.address?.town || gd.address?.village || gd.address?.county || locName
         } catch { }
       }
-      setSelected({ location: { lat, lon: lng, name: locName }, score, status: getStatus(score), wind: Math.round(weather.hourly?.wind_speed_10m?.[h] ?? 10), waveHeight: marineResult.waveHeight, seaTemp: marineResult.seaTemp, currentSpeed: marineResult.currentSpeed, currentDirection: marineResult.currentDirection, pressure: pressNow, pressureTrend, precipitation: precip, windDirection: windDir, sunrise: weather.daily?.sunrise?.[0] ?? null, sunset: weather.daily?.sunset?.[0] ?? null, visibilityScore: vis, hourly: weather.hourly })
+      setSelected({ location: { lat, lon: lng, name: locName }, score, status: getStatus(score), wind: Math.round(weather.hourly?.wind_speed_10m?.[h] ?? 10), waveHeight: marineResult.waveHeight, seaTemp: marineResult.seaTemp, currentSpeed: marineResult.currentSpeed, currentDirection: marineResult.currentDirection, pressure: pressNow, pressureTrend, precipitation: precip, windDirection: windDir, sunrise: weather.daily?.sunrise?.[0] ?? null, sunset: weather.daily?.sunset?.[0] ?? null, visibilityScore: vis, hourly: weather.hourly,
+        waterQuality: calcWaterQuality(marineResult.seaTemp, precip, Math.round(weather.hourly?.wind_speed_10m?.[h] ?? 10), marineResult.waveHeight, lat, lng)
+      })
     } catch { }
     // Fetch real tide data from Kartverket
     try {
@@ -216,7 +220,8 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
     const scores = Array.from({ length: 24 }, (_, h) => {
       const i = start + h
       const base = calcScore(selected.hourly!.wind_speed_10m[i] ?? 10, selected.hourly!.cloud_cover[i] ?? 50, selected.hourly!.temperature_2m[i] ?? 12, h, 0.15, selected.waveHeight, selected.hourly!.surface_pressure[i] ?? null, selected.pressureTrend, selected.seaTemp, selected.hourly!.precipitation[i] ?? null, moon.score, selected.currentSpeed, selected.visibilityScore)
-      return getFishTypeModifier(fishType, base, h, selected.seaTemp)
+      const wqMod = selected.waterQuality ? Math.round((selected.waterQuality.score - 70) * 0.15) : 0
+      return Math.min(99, Math.max(5, getFishTypeModifier(fishType, base, h, selected.seaTemp) + wqMod))
     })
     const avg = Math.round(scores.reduce((a, b) => a + b, 0) / 24)
     const best = scores.map((s, h) => ({ h, s })).filter(x => x.h >= 4 && x.h <= 22 && x.s >= 55).sort((a, b) => b.s - a.s).slice(0, 4)
@@ -427,9 +432,9 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
 
               {/* Tabs */}
               <div className="flex border-b border-gray-100">
-                {(['fiske', 'tidevann', 'skjell'] as const).map(tab => (
-                  <button key={tab} onClick={() => setActiveTab(tab)} className={'flex-1 py-2 text-xs font-medium border-b-2 transition-all ' + (activeTab === tab ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-400')}>
-                    {tab === 'fiske' ? 'Fiske' : tab === 'tidevann' ? 'Tidevann' : 'Skjell'}
+                {(['fiske', 'tidevann', 'vann', 'skjell'] as const).map(tab => (
+                  <button key={tab} onClick={() => setActiveTab(tab as any)} className={'flex-1 py-1.5 text-xs font-medium border-b-2 transition-all ' + (activeTab === tab ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-400')}>
+                    {tab === 'fiske' ? 'Fiske' : tab === 'tidevann' ? 'Tidevann' : tab === 'vann' ? 'Vann' : 'Skjell'}
                   </button>
                 ))}
               </div>
@@ -671,6 +676,71 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
                     <p className="text-xs font-medium text-blue-700 mb-1">Tidevann og fiske</p>
                     <p className="text-xs text-blue-600">Stigende tidevann mot hoyvann er generelt best. Fisken er mer aktiv og beveger seg innover ved floende sjo.</p>
                   </div>
+                </div>
+              )}
+
+              {/* Tab: Vann */}
+              {activeTab === 'vann' && (
+                <div className="space-y-3">
+                  {selected.waterQuality ? (
+                    <>
+                      {/* Score */}
+                      <div className="text-center bg-blue-50 rounded-xl p-4">
+                        <div className="text-4xl font-medium text-gray-900">{selected.waterQuality.score}</div>
+                        <div className={'text-sm font-medium mt-1 ' + selected.waterQuality.color}>{selected.waterQuality.label}</div>
+                      </div>
+
+                      {/* Quick stats */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-gray-50 rounded-lg p-2.5">
+                          <p className="text-xs text-gray-400">Løst oksygen</p>
+                          <p className="text-sm font-medium text-gray-900">{selected.waterQuality.dissolvedOxygen} mg/L</p>
+                          <p className="text-xs text-gray-400">{selected.waterQuality.oxygenSaturation}% metning</p>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-2.5">
+                          <p className="text-xs text-gray-400">Saltholdighet</p>
+                          <p className="text-sm font-medium text-gray-900">~{selected.waterQuality.salinity} ppt</p>
+                          <p className="text-xs text-gray-400">Norsk kystvann</p>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-2.5">
+                          <p className="text-xs text-gray-400">Klorofyll-a</p>
+                          <p className="text-sm font-medium text-gray-900 capitalize">{selected.waterQuality.chlorophyll}</p>
+                          <p className="text-xs text-gray-400">Alge-/næringsniva</p>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-2.5">
+                          <p className="text-xs text-gray-400">Siktdyp</p>
+                          <p className="text-sm font-medium text-gray-900 capitalize">{selected.waterQuality.turbidity}</p>
+                          <p className="text-xs text-gray-400">pH ~{selected.waterQuality.pH}</p>
+                        </div>
+                      </div>
+
+                      {/* Factor breakdown */}
+                      <div>
+                        <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Parametre</p>
+                        <div className="space-y-1.5">
+                          {selected.waterQuality.factors.map((f, i) => (
+                            <div key={i} className={'flex items-start gap-2 rounded-lg px-2.5 py-2 ' + (f.good ? 'bg-green-50' : 'bg-red-50')}>
+                              <span className="text-sm shrink-0">{f.icon}</span>
+                              <p className={'text-xs ' + (f.good ? 'text-green-800' : 'text-red-700')}>{f.text}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Sources */}
+                      <div className="bg-gray-50 rounded-xl p-3">
+                        <p className="text-xs font-medium text-gray-500 mb-1">Datagrunnlag</p>
+                        <p className="text-xs text-gray-400">Vannkvalitet er estimert fra havtemperatur, nedbør, vind og årstid. Ikke direkte målt.</p>
+                        <div className="mt-2 space-y-0.5">
+                          {selected.waterQuality.sources.map((s, i) => (
+                            <p key={i} className="text-xs text-gray-400">· {s}</p>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-400">Ingen vannkvalitetsdata tilgjengelig</p>
+                  )}
                 </div>
               )}
 
