@@ -8,8 +8,9 @@ import {
   formatSunTime, visibilityLabel
 } from '@/lib/fishing-score'
 import { fetchMarineData } from '@/lib/marine'
+import { fetchTideData, type TideData } from '@/lib/tide'
 import {
-  getRecommendation, getTideStatus, getFishTypeModifier, getDivingScore,
+  getRecommendation, getFishTypeModifier, getDivingScore,
   generateHotspots, type FishType, type AppMode
 } from '@/lib/recommendations'
 import LocationSearch from './LocationSearch'
@@ -107,6 +108,7 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
   const [mapType, setMapType] = useState<MapType>('kart')
   const [fishType, setFishType] = useState<FishType>('general')
   const [appMode, setAppMode] = useState<AppMode>('fiske')
+  const [tideData, setTideData] = useState<TideData | null>(null)
   const supabase = createClient()
   const router = useRouter()
 
@@ -137,6 +139,11 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
         } catch { }
       }
       setSelected({ location: { lat, lon: lng, name: locName }, score, status: getStatus(score), wind: Math.round(weather.hourly?.wind_speed_10m?.[h] ?? 10), waveHeight: marineResult.waveHeight, seaTemp: marineResult.seaTemp, currentSpeed: marineResult.currentSpeed, currentDirection: marineResult.currentDirection, pressure: pressNow, pressureTrend, precipitation: precip, windDirection: windDir, sunrise: weather.daily?.sunrise?.[0] ?? null, sunset: weather.daily?.sunset?.[0] ?? null, visibilityScore: vis, hourly: weather.hourly })
+    } catch { }
+    // Fetch real tide data from Kartverket
+    try {
+      const tide = await fetchTideData(lat, lng)
+      setTideData(tide)
     } catch { }
     setMapLoading(false)
   }
@@ -243,7 +250,7 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
     return getRecommendation({ scores: hourlyScores, nowH, wind: selected.wind, waveHeight: selected.waveHeight, pressureTrend: selected.pressureTrend, precipitation: selected.precipitation, currentSpeed: selected.currentSpeed, fishType, mode: appMode })
   }, [selected, hourlyScores, nowH, fishType, appMode])
 
-  const tideStatus = useMemo(() => getTideStatus(nowH), [nowH])
+  const tideStatus = tideData ?? null
   const divingScore = selected ? getDivingScore(selected.waveHeight, selected.currentSpeed, selected.visibilityScore) : null
 
   const urgencyStyles = { now: 'bg-green-50 border-green-200', soon: 'bg-blue-50 border-blue-200', wait: 'bg-amber-50 border-amber-200', danger: 'bg-red-50 border-red-200' }
@@ -300,7 +307,7 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
           <div className="w-72 shrink-0 border-l border-gray-200 bg-white overflow-y-auto flex flex-col">
             <div className="flex items-center justify-between px-4 pt-4 pb-2 border-b border-gray-100 shrink-0">
               <p className="text-xs text-gray-500 truncate flex-1 mr-2">{selected.location.name}</p>
-              <button onClick={() => { setSelected(null); hotspotMarkersRef.current.forEach(m => m.remove()); hotspotMarkersRef.current = [] }} className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 text-base leading-none">x</button>
+              <button onClick={() => { setSelected(null); setTideData(null); hotspotMarkersRef.current.forEach(m => m.remove()); hotspotMarkersRef.current = [] }} className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 text-base leading-none">x</button>
             </div>
 
             <div className="p-4 space-y-3 flex-1">
@@ -363,16 +370,22 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
                 </div>
               )}
 
-              {/* Tide status bar */}
-              <div className={'rounded-xl p-3 border flex items-center justify-between ' + (tideStatus.isGood ? 'bg-blue-50 border-blue-100' : 'bg-gray-50 border-gray-200')}>
-                <div>
-                  <p className={'text-sm font-medium ' + (tideStatus.isGood ? 'text-blue-700' : 'text-gray-600')}>{tideStatus.label}</p>
-                  <p className={'text-xs mt-0.5 ' + (tideStatus.isGood ? 'text-blue-500' : 'text-gray-400')}>{tideStatus.nextEvent}</p>
+              {/* Tide status bar — real Kartverket data */}
+              {tideStatus && (
+                <div className={'rounded-xl p-3 border flex items-center justify-between ' + (tideStatus.nowTrend === 'rising' ? 'bg-blue-50 border-blue-100' : 'bg-gray-50 border-gray-200')}>
+                  <div>
+                    <p className={'text-sm font-medium ' + (tideStatus.nowTrend === 'rising' ? 'text-blue-700' : 'text-gray-600')}>{tideStatus.label}</p>
+                    {tideStatus.nowValue !== null && (
+                      <p className={'text-xs mt-0.5 ' + (tideStatus.nowTrend === 'rising' ? 'text-blue-500' : 'text-gray-400')}>
+                        Vannstand: {tideStatus.nowValue > 0 ? '+' : ''}{tideStatus.nowValue} cm
+                      </p>
+                    )}
+                  </div>
+                  <div className={'text-2xl ' + (tideStatus.nowTrend === 'rising' ? 'opacity-100' : 'opacity-40')}>
+                    {tideStatus.nowTrend === 'rising' ? '↑' : '↓'}
+                  </div>
                 </div>
-                <div className={'text-2xl ' + (tideStatus.isGood ? 'opacity-100' : 'opacity-40')}>
-                  {tideStatus.isGood ? '↑' : '↓'}
-                </div>
-              </div>
+              )}
 
               {/* Tabs */}
               <div className="flex border-b border-gray-100">
@@ -505,40 +518,106 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
                 </div>
               )}
 
-              {/* Tab: Tidevann */}
+              {/* Tab: Tidevann — ekte Kartverket-data */}
               {activeTab === 'tidevann' && (
                 <div className="space-y-3">
+                  {/* Now status */}
                   <div className="text-center bg-blue-50 rounded-xl p-3">
                     <p className="text-xs text-gray-400 mb-1">Na ({fmt(nowH)})</p>
-                    <p className="text-2xl font-medium text-blue-700">{tideLabel(nowH)}</p>
-                    <p className="text-xs text-blue-500 mt-1">Score: {scoreTide(nowH)}/100</p>
+                    {tideData ? (
+                      <>
+                        <p className="text-2xl font-medium text-blue-700">
+                          {tideData.nowTrend === 'rising' ? 'Stigende' : tideData.nowTrend === 'falling' ? 'Fallende' : 'Ukjent'}
+                        </p>
+                        {tideData.nowValue !== null && (
+                          <p className="text-sm text-blue-600 mt-1">
+                            {tideData.nowValue > 0 ? '+' : ''}{tideData.nowValue} cm over sjokart-null
+                          </p>
+                        )}
+                        <p className="text-xs text-blue-400 mt-1">Kilde: Kartverket</p>
+                      </>
+                    ) : (
+                      <p className="text-lg text-blue-500">Henter tidevannsdata...</p>
+                    )}
                   </div>
-                  <div className="flex items-end gap-px h-16">
-                    {Array.from({ length: 24 }, (_, h) => {
-                      const height = Math.max(4, Math.round(simulateTide(h) * 0.58))
-                      const tScore = scoreTide(h)
-                      const isNow = h === nowH
-                      const color = isNow ? '#2563eb' : tScore >= 80 ? '#16a34a' : tScore >= 60 ? '#60a5fa' : tScore >= 40 ? '#d97706' : '#e5e7eb'
-                      return <div key={h} className="flex-1 rounded-t" style={{ height: height + 'px', background: color }} title={fmt(h) + ': ' + tideLabel(h)} />
-                    })}
-                  </div>
-                  <div className="flex justify-between text-xs text-gray-300">
-                    <span>00</span><span>06</span><span>12</span><span>18</span><span>24</span>
-                  </div>
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Beste tidspunkter</p>
-                  <div className="space-y-1">
-                    {Array.from({ length: 24 }, (_, h) => ({ h, score: scoreTide(h) })).filter(x => x.h >= 4 && x.score >= 75).sort((a, b) => b.score - a.score).slice(0, 4).map((t, i) => (
-                      <div key={t.h} className={'flex justify-between items-center rounded-lg px-3 py-2 ' + (i === 0 ? 'bg-green-50 border border-green-100' : 'bg-gray-50')}>
-                        <span className={'text-sm font-medium ' + (i === 0 ? 'text-green-700' : 'text-gray-700')}>{fmt(t.h)} — {tideLabel(t.h)}</span>
-                        <span className={'text-sm ' + (i === 0 ? 'text-green-600' : 'text-gray-400')}>{t.score}</span>
+
+                  {/* Real tide chart if data available */}
+                  {tideData && tideData.entries.length > 0 ? (
+                    <>
+                      <div>
+                        <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Tidevann i dag (cm)</p>
+                        <div className="flex items-end gap-px h-16 rounded overflow-hidden">
+                          {tideData.entries.map((e, h) => {
+                            const allVals = tideData.entries.map(x => x.value)
+                            const min = Math.min(...allVals)
+                            const max = Math.max(...allVals)
+                            const range = max - min || 1
+                            const height = Math.max(8, Math.round(((e.value - min) / range) * 100))
+                            const isNow = h === nowH
+                            const isHigh = tideData.extremes.some(ex => ex.type === 'high' && new Date(ex.time).getHours() === h)
+                            const isLow = tideData.extremes.some(ex => ex.type === 'low' && new Date(ex.time).getHours() === h)
+                            const color = isNow ? '#1d4ed8' : isHigh ? '#16a34a' : isLow ? '#dc2626' : '#60a5fa'
+                            return <div key={h} className="flex-1 rounded-t" style={{ height: height + '%', background: color }} title={fmt(h) + ': ' + e.value + ' cm'} />
+                          })}
+                        </div>
+                        <div className="flex justify-between text-xs text-gray-300 mt-1">
+                          <span>00</span><span>06</span><span>12</span><span>18</span><span>24</span>
+                        </div>
+                        <div className="flex gap-3 mt-1 text-xs text-gray-400">
+                          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-green-600 inline-block"></span>Hoyvann</span>
+                          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-500 inline-block"></span>Lavvann</span>
+                          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-blue-700 inline-block"></span>Na</span>
+                        </div>
                       </div>
-                    ))}
-                  </div>
+
+                      {/* High/low table */}
+                      {tideData.extremes.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Hoyvann og lavvann</p>
+                          <div className="space-y-1">
+                            {tideData.extremes.map((ex, i) => {
+                              const d = new Date(ex.time)
+                              const hh = d.getHours()
+                              const isPast = d < new Date()
+                              return (
+                                <div key={i} className={'flex justify-between items-center rounded-lg px-3 py-2 ' + (isPast ? 'opacity-40 bg-gray-50' : ex.type === 'high' ? 'bg-green-50 border border-green-100' : 'bg-red-50 border border-red-100')}>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-base">{ex.type === 'high' ? '▲' : '▼'}</span>
+                                    <span className={'text-sm font-medium ' + (ex.type === 'high' ? 'text-green-700' : 'text-red-600')}>
+                                      {ex.type === 'high' ? 'Hoyvann' : 'Lavvann'} {fmt(hh)}
+                                    </span>
+                                  </div>
+                                  <span className="text-sm text-gray-500">{ex.value} cm</span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    /* Fallback sine chart */
+                    <>
+                      <div className="flex items-end gap-px h-16">
+                        {Array.from({ length: 24 }, (_, h) => {
+                          const height = Math.max(4, Math.round(simulateTide(h) * 0.58))
+                          const tScore = scoreTide(h)
+                          const isNow = h === nowH
+                          const color = isNow ? '#2563eb' : tScore >= 80 ? '#16a34a' : tScore >= 60 ? '#60a5fa' : tScore >= 40 ? '#d97706' : '#e5e7eb'
+                          return <div key={h} className="flex-1 rounded-t" style={{ height: height + 'px', background: color }} title={fmt(h)} />
+                        })}
+                      </div>
+                      <div className="flex justify-between text-xs text-gray-300">
+                        <span>00</span><span>06</span><span>12</span><span>18</span><span>24</span>
+                      </div>
+                      <p className="text-xs text-gray-300 text-center">Estimert — ingen data for dette omradet</p>
+                    </>
+                  )}
+
                   <div className="bg-blue-50 rounded-xl p-3">
                     <p className="text-xs font-medium text-blue-700 mb-1">Tidevann og fiske</p>
-                    <p className="text-xs text-blue-600">Stigende tidevann mot høyvann er generelt best. Fisken er mer aktiv og beveger seg innover.</p>
+                    <p className="text-xs text-blue-600">Stigende tidevann mot hoyvann er generelt best. Fisken er mer aktiv og beveger seg innover ved floende sjo.</p>
                   </div>
-                  <p className="text-xs text-gray-300 text-center">Simulert modell — ikke nøyaktig for alle lokasjoner</p>
                 </div>
               )}
 
