@@ -286,10 +286,6 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
             <div className="w-2 h-2 rounded-full bg-amber-400 shrink-0"></div>
             <span className="hidden sm:block">Skjellmalested</span>
           </div>
-          <div className="flex border border-gray-200 rounded-lg overflow-hidden">
-            <button onClick={() => switchMapType('topo')} className={'px-3 py-1.5 text-xs ' + (mapType === 'topo' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50')}>Topo</button>
-            <button onClick={() => switchMapType('sea')} className={'px-3 py-1.5 text-xs border-l border-gray-200 ' + (mapType === 'sea' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50')}>Sjokart</button>
-          </div>
         </div>
         <div className="flex items-center gap-2">
           {user ? (
