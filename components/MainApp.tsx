@@ -546,13 +546,7 @@ export default function MainApp({ user, initialFavorites }: {
                       </p>
                     )}
                     
-                      href="https://www.mattilsynet.no/mat-og-drikke/forbrukere/blaskjellvarsel"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block w-full text-center py-2 bg-gray-900 text-white rounded-xl text-sm hover:bg-gray-800"
-                    >
-                      Se varsel pa Mattilsynet.no
-                    </a>
+                      <a href="https://www.mattilsynet.no/mat-og-drikke/forbrukere/blaskjellvarsel" target="_blank" rel="noopener noreferrer" className="block w-full text-center py-2 bg-gray-900 text-white rounded-xl text-sm hover:bg-gray-800">Se varsel pa Mattilsynet.no</a>
                   </div>
 
                   <div className="space-y-2">
