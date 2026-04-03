@@ -258,13 +258,7 @@ export default function MapView() {
                     <p className="text-xs text-gray-400 mt-1">Utenfor sesong. Varselet er aktivt mars–oktober.</p>
                   )}
                   
-                    href={`https://www.mattilsynet.no/mat-og-drikke/forbrukere/blaskjellvarsel`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-block mt-2 text-xs text-blue-600 underline"
-                  >
-                    Se blåskjellvarsel på Mattilsynet.no &#8594;
-                  </a>
+                    <a href="https://www.mattilsynet.no/mat-og-drikke/forbrukere/blaskjellvarsel" target="_blank" rel="noopener noreferrer" className="inline-block mt-2 text-xs text-blue-600 underline">Se blaskjellvarsel pa Mattilsynet.no</a>
                 </div>
               )}
 
