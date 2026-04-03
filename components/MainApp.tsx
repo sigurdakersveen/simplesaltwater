@@ -56,6 +56,26 @@ const SHELLFISH_STATIONS = [
   { name: 'Oslofjorden', lat: 59.44, lon: 10.53 },
 ]
 
+const MAP_LAYERS = {
+  kart: {
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '© OpenStreetMap',
+    maxZoom: 19,
+  },
+  flyfoto: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: '© Esri, Maxar, Earthstar Geographics',
+    maxZoom: 19,
+  },
+  sjokart: {
+    url: 'https://cache.kartverket.no/v1/wmts/1.0.0/sjokartraster/default/webmercator/{z}/{y}/{x}.png',
+    attribution: '© Kartverket',
+    maxZoom: 18,
+  },
+}
+
+type MapType = 'kart' | 'flyfoto' | 'sjokart'
+
 function nearestShellfish(lat: number, lon: number) {
   let best = SHELLFISH_STATIONS[0]
   let bestDist = Infinity
@@ -86,8 +106,7 @@ function dayLabel(offset: number) {
 export default function MainApp({ user, initialFavorites }: { user: any; initialFavorites: any[] }) {
   const mapRef = useRef<any>(null)
   const markerRef = useRef<any>(null)
-  const topoLayerRef = useRef<any>(null)
-  const seaLayerRef = useRef<any>(null)
+  const tileLayerRef = useRef<any>(null)
   const [favorites, setFavorites] = useState(initialFavorites)
   const [selected, setSelected] = useState<PointData | null>(null)
   const [mapLoading, setMapLoading] = useState(false)
@@ -95,7 +114,7 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
   const [saveMsg, setSaveMsg] = useState('')
   const [activeDay, setActiveDay] = useState(0)
   const [activeTab, setActiveTab] = useState<'fiske' | 'tidevann' | 'skjell'>('fiske')
-  const [mapType, setMapType] = useState<'topo' | 'sea'>('topo')
+  const [mapType, setMapType] = useState<MapType>('kart')
   const supabase = createClient()
   const router = useRouter()
 
@@ -164,23 +183,12 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
       })
 
       const map = L.map('main-map', { center: [65, 14], zoom: 5 })
-
-      const topo = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap', maxZoom: 18,
-      })
-
-      const sea = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap', maxZoom: 18,
-      })
-      const seaMarks = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
-        attribution: '© OpenSeaMap', maxZoom: 18,
-      })
-
-      topoLayerRef.current = topo
-      seaLayerRef.current = { base: sea, marks: seaMarks }
+      const layer = MAP_LAYERS.kart
+      tileLayerRef.current = L.tileLayer(layer.url, {
+        attribution: layer.attribution,
+        maxZoom: layer.maxZoom,
+      }).addTo(map)
       mapRef.current = map
-
-      topo.addTo(map)
 
       for (const s of SHELLFISH_STATIONS) {
         const icon = L.divIcon({
@@ -201,18 +209,11 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
     return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null } }
   }, [])
 
-  function switchMapType(type: 'topo' | 'sea') {
+  function switchMapType(type: MapType) {
     setMapType(type)
-    if (!mapRef.current) return
-    if (type === 'topo') {
-      seaLayerRef.current?.base?.remove()
-      seaLayerRef.current?.marks?.remove()
-      topoLayerRef.current?.addTo(mapRef.current)
-    } else {
-      topoLayerRef.current?.remove()
-      seaLayerRef.current?.base?.addTo(mapRef.current)
-      seaLayerRef.current?.marks?.addTo(mapRef.current)
-    }
+    if (!mapRef.current || !tileLayerRef.current) return
+    const layer = MAP_LAYERS[type]
+    tileLayerRef.current.setUrl(layer.url)
   }
 
   async function flyToLocation(loc: Location) {
@@ -292,19 +293,21 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
             <div className="w-2 h-2 rounded-full bg-amber-400 shrink-0"></div>
             <span className="hidden sm:block">Skjellmalested</span>
           </div>
+          {/* Map toggle */}
           <div className="flex border border-gray-200 rounded-lg overflow-hidden">
-            <button
-              onClick={() => switchMapType('topo')}
-              className={'px-3 py-1.5 text-xs font-medium ' + (mapType === 'topo' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50')}
-            >
-              Kart
-            </button>
-            <button
-              onClick={() => switchMapType('sea')}
-              className={'px-3 py-1.5 text-xs font-medium border-l border-gray-200 ' + (mapType === 'sea' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50')}
-            >
-              Sjokart
-            </button>
+            {(['kart', 'flyfoto', 'sjokart'] as MapType[]).map((type, i) => (
+              <button
+                key={type}
+                onClick={() => switchMapType(type)}
+                className={
+                  'px-3 py-1.5 text-xs font-medium ' +
+                  (i > 0 ? 'border-l border-gray-200 ' : '') +
+                  (mapType === type ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50')
+                }
+              >
+                {type === 'kart' ? 'Kart' : type === 'flyfoto' ? 'Flyfoto' : 'Sjokart'}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -336,7 +339,6 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
           <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
           <div id="main-map" className="absolute inset-0" />
 
-          {/* Search overlay — inside map, top left with margin */}
           <div className="absolute top-3 left-3 z-10" style={{ width: '320px', maxWidth: 'calc(100% - 24px)' }}>
             <LocationSearch onSelect={flyToLocation} />
           </div>
@@ -360,12 +362,7 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
 
             <div className="flex items-center justify-between px-4 pt-4 pb-2 border-b border-gray-100 shrink-0">
               <p className="text-xs text-gray-500 truncate flex-1 mr-2">{selected.location.name}</p>
-              <button
-                onClick={() => setSelected(null)}
-                className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 text-base leading-none"
-              >
-                x
-              </button>
+              <button onClick={() => setSelected(null)} className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 text-base leading-none">x</button>
             </div>
 
             <div className="p-4 space-y-3 flex-1">
@@ -404,6 +401,8 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
               {/* Tab: Fiske */}
               {activeTab === 'fiske' && (
                 <div className="space-y-3">
+
+                  {/* Beste fisketider */}
                   <div>
                     <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Beste fisketider</p>
                     {bestTimes.length > 0 ? (
@@ -423,6 +422,7 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
                     )}
                   </div>
 
+                  {/* Sol */}
                   {(selected.sunrise || selected.sunset) && (
                     <div className="grid grid-cols-2 gap-2">
                       <div className="bg-orange-50 rounded-lg p-2.5">
@@ -438,6 +438,31 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
                     </div>
                   )}
 
+                  {/* Skjellvarsel — inline i fiske-tab */}
+                  {shellfish && (
+                    <div className={'rounded-xl p-3 border ' + (isShellSeason() ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200')}>
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-xs font-medium text-gray-700">Skjellvarsel</p>
+                        {isShellSeason() && (
+                          <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Sesong aktiv</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 mb-1">
+                        Naermeste malested: <span className="font-medium text-gray-700">{shellfish.station.name}</span> (~{shellfish.distKm} km)
+                      </p>
+                      {shellfish.distKm > 100 && (
+                        <p className="text-xs text-amber-600 mb-1">Langt unna — gifter kan variere lokalt</p>
+                      )}
+                      {isShellSeason() ? (
+                        <p className="text-xs text-amber-700 mb-2">Sjekk Mattilsynet for gjeldende varsel for fredag</p>
+                      ) : (
+                        <p className="text-xs text-gray-400 mb-2">Utenfor sesong (mars–oktober)</p>
+                      )}
+                      <a href="https://www.mattilsynet.no/mat-og-drikke/forbrukere/blaskjellvarsel" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 underline">Se varsel pa Mattilsynet.no</a>
+                    </div>
+                  )}
+
+                  {/* Data grid */}
                   <div className="grid grid-cols-2 gap-2">
                     {[
                       { label: 'Vind', value: selected.wind + ' km/t', sub: selected.windDirection !== null ? windDirectionLabel(selected.windDirection) : '' },
@@ -455,6 +480,7 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
                     ))}
                   </div>
 
+                  {/* Advarsler */}
                   {selected.waveHeight !== null && selected.waveHeight > 1.5 && (
                     <div className="bg-red-50 border border-red-100 rounded-xl p-3">
                       <p className="text-xs text-red-600 font-medium">Bolgehøyde over 1.5m — vurder om det er trygt</p>
@@ -466,6 +492,7 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
                     </div>
                   )}
 
+                  {/* Lagre / logg */}
                   {user ? (
                     <div className="space-y-2">
                       <button onClick={handleAddFavorite} className="w-full py-2 border border-blue-200 text-blue-600 rounded-xl text-sm hover:bg-blue-50">{saveMsg || 'Lagre sted'}</button>
@@ -525,12 +552,12 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
                 </div>
               )}
 
-              {/* Tab: Skjell */}
+              {/* Tab: Skjell — detaljvisning */}
               {activeTab === 'skjell' && shellfish && (
                 <div className="space-y-3">
                   <div className={'rounded-xl p-4 border ' + (isShellSeason() ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200')}>
                     <p className="text-sm font-medium text-gray-800 mb-1">{isShellSeason() ? 'Skjellsesong aktiv' : 'Utenfor skjellsesong'}</p>
-                    <p className="text-xs text-gray-500">Mattilsynet overvaker skjell fra mars til oktober og publiserer varsel hver fredag.{!isShellSeason() && ' Varselet er ikke aktivt na.'}</p>
+                    <p className="text-xs text-gray-500">Mattilsynet overvaker skjell fra mars til oktober og publiserer varsel hver fredag.</p>
                   </div>
 
                   <div className="bg-white border border-gray-200 rounded-xl p-3">
@@ -538,7 +565,7 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
                     <p className="text-base font-medium text-gray-900">{shellfish.station.name}</p>
                     <p className="text-xs text-gray-400 mb-3">Ca. {shellfish.distKm} km fra valgt punkt</p>
                     {shellfish.distKm > 100 && (
-                      <p className="text-xs text-amber-600 bg-amber-50 rounded-lg p-2 mb-3">Malestedet er langt unna. Skjellgifter kan variere lokalt.</p>
+                      <p className="text-xs text-amber-600 bg-amber-50 rounded-lg p-2 mb-3">Malestedet er langt unna — skjellgifter kan variere lokalt langs kysten.</p>
                     )}
                     <a href="https://www.mattilsynet.no/mat-og-drikke/forbrukere/blaskjellvarsel" target="_blank" rel="noopener noreferrer" className="block w-full text-center py-2 bg-gray-900 text-white rounded-xl text-sm hover:bg-gray-800">Se varsel pa Mattilsynet.no</a>
                   </div>
