@@ -22,13 +22,9 @@ export function scoreTemp(v: number) {
 }
 
 export function scoreHour(h: number) {
-  // To optimale vinduer: soloppgang (~06) og solnedgang (~19)
-  // Gaussian-lignende kurve rundt hvert vindu
-  const morning = Math.exp(-0.5 * Math.pow((h - 6) / 1.8, 2))
-  const evening = Math.exp(-0.5 * Math.pow((h - 19) / 1.8, 2))
-  const peak = Math.max(morning, evening)
-  const score = 30 + Math.round(peak * 70)
-  return Math.min(100, Math.max(30, score))
+  const morning = Math.exp(-0.5 * Math.pow((h - 6) / 1.5, 2))
+  const evening = Math.exp(-0.5 * Math.pow((h - 19) / 1.5, 2))
+  return 25 + Math.round(Math.max(morning, evening) * 75)
 }
 
 export function simulateTide(h: number): number {
@@ -204,21 +200,53 @@ export function calcScore(
   currentSpeed: number | null = null,
   visibilityScore: number = 80
 ): number {
-  const score =
-    scoreWind(wind)                           * 0.18 +
-    scoreHour(hour)                           * 0.18 +
-    scoreCloud(cloud)                         * 0.08 +
-    scoreTemp(temp)                           * 0.07 +
-    scoreTide(hour)                           * tideWeight +
-    scorePressure(pressure, pressureTrend)    * 0.10 +
-    moonScore                                 * 0.05 +
-    scoreSeaTemp(seaTemp)                     * 0.08 +
-    scorePrecipitation(precipitation)         * 0.07 +
-    scoreWave(waveHeight)                     * 0.05 +
-    scoreCurrent(currentSpeed)                * 0.07 +
-    visibilityScore                           * 0.07
+  // Tidspunkt: myk gaussisk kurve — topper ved 06 og 19
+  const morning = Math.exp(-0.5 * Math.pow((hour - 6) / 1.5, 2))
+  const evening = Math.exp(-0.5 * Math.pow((hour - 19) / 1.5, 2))
+  const timeScore = 25 + Math.round(Math.max(morning, evening) * 75)
 
-  return Math.round(Math.min(100, Math.max(0, score)))
+  // Tidevann: gradert etter hastighet og fase
+  const tCurr = simulateTide(hour)
+  const tPrev = simulateTide(hour - 0.5)
+  const rising = tCurr > tPrev
+  const speed = Math.abs(tCurr - tPrev) * 2
+  let tideScore: number
+  if (rising && tCurr > 60) tideScore = Math.min(100, Math.round(70 + speed * 6))
+  else if (rising && tCurr > 30) tideScore = Math.round(55 + speed * 5)
+  else if (!rising && tCurr > 75) tideScore = 55
+  else if (!rising && tCurr > 50) tideScore = 42
+  else if (tCurr < 20) tideScore = 15
+  else tideScore = 28
+
+  // Basis additivt snitt av alle faktorer
+  const remaining = 1 - tideWeight
+  const base =
+    scoreWind(wind)                         * remaining * 0.22 +
+    timeScore                               * remaining * 0.22 +
+    scoreCloud(cloud)                       * remaining * 0.10 +
+    scoreTemp(temp)                         * remaining * 0.08 +
+    scorePressure(pressure, pressureTrend)  * remaining * 0.12 +
+    moonScore                               * remaining * 0.06 +
+    scoreSeaTemp(seaTemp)                   * remaining * 0.08 +
+    scorePrecipitation(precipitation)       * remaining * 0.06 +
+    scoreWave(waveHeight)                   * remaining * 0.04 +
+    scoreCurrent(currentSpeed)              * remaining * 0.06 +
+    visibilityScore                         * remaining * 0.06 +
+    tideScore                               * tideWeight
+
+  // MULTIPLIKATIVE STRAFFAKTORER — disse trekker ned drastisk
+  // Sterk vind er dealbreaker
+  const windPenalty = wind > 35 ? 0.45 : wind > 25 ? 0.72 : 1.0
+  // Kraftig nedbør er dealbreaker
+  const rainPenalty = (precipitation ?? 0) > 10 ? 0.50 : (precipitation ?? 0) > 4 ? 0.78 : 1.0
+  // Farlige bølger er dealbreaker
+  const wavePenalty = (waveHeight ?? 0) > 2.5 ? 0.40 : (waveHeight ?? 0) > 1.5 ? 0.70 : 1.0
+  // Midt på natten
+  const nightPenalty = (hour >= 23 || hour <= 3) ? 0.65 : 1.0
+
+  const final = base * windPenalty * rainPenalty * wavePenalty * nightPenalty
+
+  return Math.round(Math.min(99, Math.max(5, final)))
 }
 
 export function getStatus(score: number) {
