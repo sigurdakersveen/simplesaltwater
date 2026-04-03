@@ -1,5 +1,3 @@
-cd ~/Projects/simplesaltwater
-cat > components/MainApp.tsx << 'EOF'
 'use client'
 import { useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -207,4 +205,37 @@ export default function MainApp({ user, initialFavorites }: {
                       return <div key={h} className={`flex-1 rounded-t ${isNow ? 'bg-blue-500' : 'bg-blue-100'}`} style={{ height: `${height}px` }} />
                     })}
                   </div>
-                  <div
+                  <div className="flex justify-between text-xs text-gray-300 mt-1">
+                    <span>00</span><span>06</span><span>12</span><span>18</span><span>24</span>
+                  </div>
+                  <p className="text-xs text-gray-300 mt-2">Simulert sinemodell. Fremhevet = nå.</p>
+                </div>
+
+                {user && (
+                  <>
+                    {!showLog && (
+                      <button onClick={() => setShowLog(true)} className="w-full py-2.5 border border-gray-300 rounded-xl text-sm text-gray-600 hover:bg-white bg-gray-50">
+                        + Logg fiskeøkt her
+                      </button>
+                    )}
+                    {showLog && <FishingLogForm user={user} location={location} currentScore={dayData.avg} onClose={() => setShowLog(false)} />}
+                  </>
+                )}
+
+                {!user && (
+                  <button onClick={() => router.push('/auth')} className="w-full py-2.5 border border-gray-200 rounded-xl text-sm text-gray-400 hover:bg-white bg-gray-50">
+                    Logg inn for å lagre steder og fiskeøkter
+                  </button>
+                )}
+              </>
+            )}
+
+            {!loading && !dayData && (
+              <div className="text-center py-16 text-gray-300 text-sm">Søk etter et sted for å se fiskeforhold</div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
