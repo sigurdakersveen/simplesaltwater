@@ -22,11 +22,13 @@ export function scoreTemp(v: number) {
 }
 
 export function scoreHour(h: number) {
-  if (h >= 5 && h <= 8) return 100
-  if (h >= 17 && h <= 20) return 95
-  if (h >= 9 && h <= 11) return 75
-  if (h >= 21 || h <= 4) return 40
-  return 55
+  // To optimale vinduer: soloppgang (~06) og solnedgang (~19)
+  // Gaussian-lignende kurve rundt hvert vindu
+  const morning = Math.exp(-0.5 * Math.pow((h - 6) / 1.8, 2))
+  const evening = Math.exp(-0.5 * Math.pow((h - 19) / 1.8, 2))
+  const peak = Math.max(morning, evening)
+  const score = 30 + Math.round(peak * 70)
+  return Math.min(100, Math.max(30, score))
 }
 
 export function simulateTide(h: number): number {
@@ -36,14 +38,19 @@ export function simulateTide(h: number): number {
 export function scoreTide(hour: number): number {
   const current = simulateTide(hour)
   const prev = simulateTide(hour - 0.5)
+  const next = simulateTide(hour + 0.5)
   const rising = current > prev
-  if (rising && current > 70) return 100
-  if (rising && current > 40) return 85
-  if (!rising && current > 70) return 70
-  if (current > 80) return 65
-  if (!rising && current < 30) return 25
-  if (!rising) return 45
-  return 60
+  const speed = Math.abs(current - prev) * 2 // endringshastighet
+
+  // Beste: raskt stigende tidevann mot høyvann
+  // Verste: rundt lavvann
+  if (rising && current > 60) return Math.round(75 + speed * 5)
+  if (rising && current > 30) return Math.round(65 + speed * 4)
+  if (!rising && current > 75) return 65   // rett etter høyvann
+  if (!rising && current > 50) return 50
+  if (current < 20) return 20              // lavvann
+  if (!rising && current < 35) return 30
+  return 45
 }
 
 export function tideLabel(hour: number): string {
