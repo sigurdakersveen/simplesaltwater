@@ -6,6 +6,7 @@ import {
   calcScore, scoreWind, scoreCloud, scoreTemp, scoreHour,
   getStatus, simulateTide, scoreTide, tideLabel,
 } from '@/lib/fishing-score'
+import { fetchWaveHeight } from '@/lib/marine'
 import LocationSearch from './LocationSearch'
 import ThreeDayForecast from './ThreeDayForecast'
 import FavoritesList from './FavoritesList'
@@ -34,6 +35,7 @@ export default function MainApp({ user, initialFavorites }: {
   const [saveMsg, setSaveMsg] = useState('')
   const [tideWeight, setTideWeight] = useState(0.20)
   const [waveHeight, setWaveHeight] = useState<number | null>(null)
+  const [waveNote, setWaveNote] = useState<string | null>(null)
   const [windDirection, setWindDirection] = useState<number | null>(null)
   const [sunrise, setSunrise] = useState<string | null>(null)
   const [sunset, setSunset] = useState<string | null>(null)
@@ -44,21 +46,29 @@ export default function MainApp({ user, initialFavorites }: {
     setLoading(true)
     setHourly(null)
     setWaveHeight(null)
+    setWaveNote(null)
     setWindDirection(null)
     setSunrise(null)
     setSunset(null)
     try {
-      const [weatherRes, marineRes] = await Promise.all([
+      const [weatherRes, marineResult] = await Promise.all([
         fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=wind_speed_10m,cloud_cover,temperature_2m,winddirection_10m&daily=sunrise,sunset&forecast_days=3&wind_speed_unit=kmh&timezone=auto`),
-        fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&current=wave_height&timezone=auto`)
+        fetchWaveHeight(lat, lon)
       ])
       const weather = await weatherRes.json()
-      const marine = await marineRes.json()
       setHourly(weather.hourly)
       setSunrise(weather.daily?.sunrise?.[0] ?? null)
       setSunset(weather.daily?.sunset?.[0] ?? null)
       setWindDirection(weather.hourly?.winddirection_10m?.[new Date().getHours()] ?? null)
-      setWaveHeight(marine.current?.wave_height ?? null)
+      setWaveHeight(marineResult.waveHeight)
+      const usedSamePoint = marineResult.usedLat === lat && marineResult.usedLon === lon
+      if (!usedSamePoint && marineResult.waveHeight !== null) {
+        const dist = Math.round(Math.sqrt(
+          Math.pow((marineResult.usedLat - lat) * 111, 2) +
+          Math.pow((marineResult.usedLon - lon) * 111 * Math.cos(lat * Math.PI / 180), 2)
+        ))
+        setWaveNote(`Bølgedata fra nærmeste kystpunkt (~${dist} km unna)`)
+      }
     } catch { }
     setLoading(false)
   }, [])
@@ -211,6 +221,7 @@ export default function MainApp({ user, initialFavorites }: {
                   windDirection={windDirection}
                   sunrise={sunrise}
                   sunset={sunset}
+                  waveNote={waveNote}
                 />
 
                 <div className="bg-white border border-gray-200 rounded-xl p-4">
@@ -219,17 +230,13 @@ export default function MainApp({ user, initialFavorites }: {
                     <span className="text-xs font-medium text-gray-600">{Math.round(tideWeight * 100)}%</span>
                   </div>
                   <input
-                    type="range"
-                    min={0}
-                    max={40}
-                    step={5}
+                    type="range" min={0} max={40} step={5}
                     value={Math.round(tideWeight * 100)}
                     onChange={e => setTideWeight(Number(e.target.value) / 100)}
                     className="w-full accent-blue-500"
                   />
                   <div className="flex justify-between text-xs text-gray-300 mt-1">
-                    <span>Ingen effekt</span>
-                    <span>Svært viktig</span>
+                    <span>Ingen effekt</span><span>Svært viktig</span>
                   </div>
                   <p className="text-xs text-gray-400 mt-2">
                     Tidevann nå: <span className="font-medium text-gray-600">{tideLabel(nowH)}</span> — score: <span className="font-medium text-gray-600">{scoreTide(nowH)}</span>
