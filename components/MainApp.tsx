@@ -11,7 +11,7 @@ import { fetchMarineData } from '@/lib/marine'
 import { fetchTideData, type TideData } from '@/lib/tide'
 import {
   getRecommendation, getFishTypeModifier, getDivingScore,
-  generateHotspots, type FishType, type AppMode
+  generateHotspots, filterSeaHotspots, type FishType, type AppMode, type Hotspot
 } from '@/lib/recommendations'
 import LocationSearch from './LocationSearch'
 import FavoritesList from './FavoritesList'
@@ -175,26 +175,31 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
     return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null } }
   }, [])
 
-  // Add hotspot markers when selected changes
+  // Add hotspot markers when selected changes — filtered to sea only
   useEffect(() => {
     if (!mapRef.current || !selected) return
-    import('leaflet').then(L => {
-      hotspotMarkersRef.current.forEach(m => m.remove())
-      hotspotMarkersRef.current = []
-      const spots = generateHotspots(selected.location.lat, selected.location.lon, selected.score)
-      spots.forEach(spot => {
-        const colors: Record<string, string> = { cod: '#1d4ed8', current: '#7c3aed', depth: '#0f766e', shore: '#b45309', point: '#15803d' }
-        const color = colors[spot.type] || '#1d4ed8'
-        const icon = L.divIcon({
-          className: '',
-          html: '<div style="background:' + color + ';color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3);font-weight:500">' + spot.label + '</div>',
-          iconAnchor: [0, 10],
+    hotspotMarkersRef.current.forEach(m => m.remove())
+    hotspotMarkersRef.current = []
+    const rawSpots = generateHotspots(selected.location.lat, selected.location.lon, selected.score)
+
+    // Filter to sea, then add markers
+    filterSeaHotspots(rawSpots).then(spots => {
+      if (!mapRef.current) return
+      import('leaflet').then(L => {
+        spots.forEach(spot => {
+          const colors: Record<string, string> = { cod: '#1d4ed8', current: '#7c3aed', depth: '#0f766e', shore: '#b45309', point: '#15803d' }
+          const color = colors[spot.type] || '#1d4ed8'
+          const icon = L.divIcon({
+            className: '',
+            html: '<div style="background:' + color + ';color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3);font-weight:500">' + spot.label + '</div>',
+            iconAnchor: [0, 10],
+          })
+          const m = L.marker([spot.lat, spot.lon], { icon }).addTo(mapRef.current)
+          hotspotMarkersRef.current.push(m)
         })
-        const m = L.marker([spot.lat, spot.lon], { icon }).addTo(mapRef.current)
-        hotspotMarkersRef.current.push(m)
       })
     })
-  }, [selected])
+  }, [selected?.location.lat, selected?.location.lon])
 
   function switchMapType(type: MapType) {
     setMapType(type)

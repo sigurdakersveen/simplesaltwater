@@ -195,7 +195,16 @@ export function getDivingScore(waveHeight: number | null, currentSpeed: number |
   return { score, label: 'Dårlige dykkforhold', color: 'text-red-600' }
 }
 
-export function generateHotspots(lat: number, lon: number, score: number): Array<{ lat: number; lon: number; label: string; type: string }> {
+// Seeded pseudo-random — same lat/lon always gives same hotspots
+function seededRandom(seed: number): number {
+  const x = Math.sin(seed) * 10000
+  return x - Math.floor(x)
+}
+
+export type Hotspot = { lat: number; lon: number; label: string; type: string }
+
+export function generateHotspots(lat: number, lon: number, score: number): Hotspot[] {
+  const seed = Math.round(lat * 1000) * 1000 + Math.round(lon * 1000)
   const spots = [
     { dlat: 0.018, dlon: -0.025, label: 'Grunne naer land — torsk', type: 'cod' },
     { dlat: -0.022, dlon: 0.031, label: 'Stromkant — aktiv fisk', type: 'current' },
@@ -203,10 +212,45 @@ export function generateHotspots(lat: number, lon: number, score: number): Array
     { dlat: -0.012, dlon: -0.038, label: 'Holme — makrell og sjooret', type: 'shore' },
     { dlat: 0.028, dlon: -0.012, label: 'Odde — godt fiskested', type: 'point' },
   ]
-  return spots.map(s => ({
-    lat: lat + s.dlat + (Math.random() - 0.5) * 0.01,
-    lon: lon + s.dlon + (Math.random() - 0.5) * 0.01,
+  return spots.map((s, i) => ({
+    lat: lat + s.dlat + (seededRandom(seed + i * 7) - 0.5) * 0.008,
+    lon: lon + s.dlon + (seededRandom(seed + i * 13) - 0.5) * 0.008,
     label: s.label,
     type: s.type,
   }))
+}
+
+// Check if a point is at sea using Nominatim reverse geocode
+export async function filterSeaHotspots(spots: Hotspot[]): Promise<Hotspot[]> {
+  const results = await Promise.all(
+    spots.map(async (spot) => {
+      try {
+        const res = await fetch(
+          'https://nominatim.openstreetmap.org/reverse?lat=' + spot.lat + '&lon=' + spot.lon + '&format=json&zoom=10',
+          { headers: { 'Accept-Language': 'nb' } }
+        )
+        const data = await res.json()
+        const type = data.type ?? ''
+        const category = data.category ?? ''
+        const osmType = data.osm_type ?? ''
+        // Keep point if it's sea/water — not land features
+        const isLand = data.address && (
+          data.address.road ||
+          data.address.residential ||
+          data.address.suburb ||
+          data.address.city ||
+          data.address.town ||
+          data.address.village ||
+          data.address.hamlet ||
+          data.address.building
+        )
+        const isSea = type === 'water' || category === 'natural' || !data.address?.road
+        if (isLand) return null
+        return spot
+      } catch {
+        return spot // keep on error
+      }
+    })
+  )
+  return results.filter((s): s is Hotspot => s !== null)
 }
