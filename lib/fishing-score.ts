@@ -72,6 +72,59 @@ export function scoreWave(waveHeight: number | null): number {
   return 10
 }
 
+export function scoreSeaTemp(t: number | null): number {
+  if (t === null) return 70
+  if (t < 4) return 20
+  if (t < 8) return 50
+  if (t <= 16) return 100
+  if (t <= 20) return 85
+  if (t <= 24) return 65
+  return 40
+}
+
+export function scorePressure(hPa: number | null, trend: number | null): number {
+  if (hPa === null) return 70
+  if (trend !== null && trend < -2) return 95  // fallende raskt — fisken biter
+  if (trend !== null && trend < -0.5) return 85 // fallende sakte
+  if (trend !== null && trend > 2) return 30    // stigende raskt — fisken trekker seg
+  if (hPa > 1020) return 45                     // høyt stabilt
+  if (hPa >= 1005) return 75                    // normalt
+  return 60
+}
+
+export function scorePrecipitation(mm: number | null): number {
+  if (mm === null) return 80
+  if (mm === 0) return 90
+  if (mm < 1) return 80
+  if (mm < 5) return 60
+  if (mm < 15) return 35
+  return 15
+}
+
+export function pressureLabel(trend: number | null): string {
+  if (trend === null) return 'Ukjent'
+  if (trend < -2) return 'Faller raskt'
+  if (trend < -0.5) return 'Faller'
+  if (trend > 2) return 'Stiger raskt'
+  if (trend > 0.5) return 'Stiger'
+  return 'Stabilt'
+}
+
+export function moonPhase(date: Date): { name: string; score: number; emoji: string } {
+  const known = new Date('2000-01-06')
+  const diff = (date.getTime() - known.getTime()) / (1000 * 60 * 60 * 24)
+  const cycle = 29.53058867
+  const phase = ((diff % cycle) + cycle) % cycle
+  if (phase < 1.85 || phase >= 27.68) return { name: 'Nymåne', score: 100, emoji: '🌑' }
+  if (phase < 7.38) return { name: 'Voksende halvmåne', score: 75, emoji: '🌒' }
+  if (phase < 9.22) return { name: 'Første kvartal', score: 85, emoji: '🌓' }
+  if (phase < 14.77) return { name: 'Voksende måne', score: 70, emoji: '🌔' }
+  if (phase < 16.61) return { name: 'Fullmåne', score: 100, emoji: '🌕' }
+  if (phase < 22.15) return { name: 'Minkende måne', score: 70, emoji: '🌖' }
+  if (phase < 23.99) return { name: 'Siste kvartal', score: 80, emoji: '🌗' }
+  return { name: 'Minkende halvmåne', score: 65, emoji: '🌘' }
+}
+
 export function windDirectionLabel(degrees: number): string {
   const dirs = ['N', 'NØ', 'Ø', 'SØ', 'S', 'SV', 'V', 'NV']
   return dirs[Math.round(degrees / 45) % 8]
@@ -88,22 +141,26 @@ export function calcScore(
   temp: number,
   hour: number,
   tideWeight: number = 0.20,
-  waveHeight: number | null = null
+  waveHeight: number | null = null,
+  pressure: number | null = null,
+  pressureTrend: number | null = null,
+  seaTemp: number | null = null,
+  precipitation: number | null = null,
+  moonScore: number = 70
 ): number {
-  const remaining = 1 - tideWeight
-  const w = {
-    wind: remaining * 0.33,
-    time: remaining * 0.33,
-    cloud: remaining * 0.20,
-    temp: remaining * 0.14,
-  }
-  return Math.round(
-    scoreWind(wind) * w.wind +
-    scoreHour(hour) * w.time +
-    scoreCloud(cloud) * w.cloud +
-    scoreTemp(temp) * w.temp +
-    scoreTide(hour) * tideWeight
-  )
+  const base =
+    scoreWind(wind) * 0.20 +
+    scoreHour(hour) * 0.20 +
+    scoreCloud(cloud) * 0.10 +
+    scoreTemp(temp) * 0.10 +
+    scoreTide(hour) * tideWeight +
+    scorePressure(pressure, pressureTrend) * 0.10 +
+    moonScore * 0.05 +
+    scoreSeaTemp(seaTemp) * 0.10 +
+    scorePrecipitation(precipitation) * 0.10 +
+    scoreWave(waveHeight) * 0.05
+
+  return Math.round(Math.min(100, Math.max(0, base)))
 }
 
 export function getStatus(score: number) {

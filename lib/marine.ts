@@ -5,20 +5,28 @@ const OFFSETS = [
   [1, 1], [-1, -1], [1, -1], [-1, 1],
 ]
 
-export async function fetchWaveHeight(lat: number, lon: number): Promise<{ waveHeight: number | null; usedLat: number; usedLon: number }> {
+export type MarineResult = {
+  waveHeight: number | null
+  seaTemp: number | null
+  usedLat: number
+  usedLon: number
+}
+
+export async function fetchMarineData(lat: number, lon: number): Promise<MarineResult> {
   for (const [dLat, dLon] of OFFSETS) {
     const tryLat = lat + dLat
     const tryLon = lon + dLon
     try {
       const r = await fetch(
-        `https://marine-api.open-meteo.com/v1/marine?latitude=${tryLat}&longitude=${tryLon}&current=wave_height&timezone=auto`
+        `https://marine-api.open-meteo.com/v1/marine?latitude=${tryLat}&longitude=${tryLon}&current=wave_height,sea_surface_temperature&timezone=auto`
       )
       const d = await r.json()
       const waveHeight = d.current?.wave_height ?? null
-      if (waveHeight !== null) {
-        return { waveHeight, usedLat: tryLat, usedLon: tryLon }
+      const seaTemp = d.current?.sea_surface_temperature ?? null
+      if (waveHeight !== null || seaTemp !== null) {
+        return { waveHeight, seaTemp, usedLat: tryLat, usedLon: tryLon }
       }
     } catch { }
   }
-  return { waveHeight: null, usedLat: lat, usedLon: lon }
+  return { waveHeight: null, seaTemp: null, usedLat: lat, usedLon: lon }
 }

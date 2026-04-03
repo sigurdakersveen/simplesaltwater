@@ -4,9 +4,9 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
   calcScore, scoreWind, scoreCloud, scoreTemp, scoreHour,
-  getStatus, simulateTide, scoreTide, tideLabel,
+  getStatus, simulateTide, scoreTide, tideLabel, moonPhase,
 } from '@/lib/fishing-score'
-import { fetchWaveHeight } from '@/lib/marine'
+import { fetchMarineData } from '@/lib/marine'
 import LocationSearch from './LocationSearch'
 import ThreeDayForecast from './ThreeDayForecast'
 import FavoritesList from './FavoritesList'
@@ -20,6 +20,8 @@ type HourlyData = {
   cloud_cover: number[]
   temperature_2m: number[]
   winddirection_10m: number[]
+  surface_pressure: number[]
+  precipitation: number[]
 }
 
 export default function MainApp({ user, initialFavorites }: {
@@ -35,10 +37,14 @@ export default function MainApp({ user, initialFavorites }: {
   const [saveMsg, setSaveMsg] = useState('')
   const [tideWeight, setTideWeight] = useState(0.20)
   const [waveHeight, setWaveHeight] = useState<number | null>(null)
+  const [seaTemp, setSeaTemp] = useState<number | null>(null)
   const [waveNote, setWaveNote] = useState<string | null>(null)
   const [windDirection, setWindDirection] = useState<number | null>(null)
   const [sunrise, setSunrise] = useState<string | null>(null)
   const [sunset, setSunset] = useState<string | null>(null)
+  const [pressure, setPressure] = useState<number | null>(null)
+  const [pressureTrend, setPressureTrend] = useState<number | null>(null)
+  const [precipitation, setPrecipitation] = useState<number | null>(null)
   const supabase = createClient()
   const router = useRouter()
 
@@ -46,28 +52,41 @@ export default function MainApp({ user, initialFavorites }: {
     setLoading(true)
     setHourly(null)
     setWaveHeight(null)
+    setSeaTemp(null)
     setWaveNote(null)
     setWindDirection(null)
     setSunrise(null)
     setSunset(null)
+    setPressure(null)
+    setPressureTrend(null)
+    setPrecipitation(null)
     try {
       const [weatherRes, marineResult] = await Promise.all([
-        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=wind_speed_10m,cloud_cover,temperature_2m,winddirection_10m&daily=sunrise,sunset&forecast_days=3&wind_speed_unit=kmh&timezone=auto`),
-        fetchWaveHeight(lat, lon)
+        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=wind_speed_10m,cloud_cover,temperature_2m,winddirection_10m,surface_pressure,precipitation&daily=sunrise,sunset&forecast_days=3&wind_speed_unit=kmh&timezone=auto`),
+        fetchMarineData(lat, lon)
       ])
       const weather = await weatherRes.json()
       setHourly(weather.hourly)
       setSunrise(weather.daily?.sunrise?.[0] ?? null)
       setSunset(weather.daily?.sunset?.[0] ?? null)
-      setWindDirection(weather.hourly?.winddirection_10m?.[new Date().getHours()] ?? null)
+      const h = new Date().getHours()
+      setWindDirection(weather.hourly?.winddirection_10m?.[h] ?? null)
+      setPrecipitation(weather.hourly?.precipitation?.[h] ?? null)
+      const pressNow = weather.hourly?.surface_pressure?.[h] ?? null
+      const pressThreeHoursAgo = weather.hourly?.surface_pressure?.[Math.max(0, h - 3)] ?? null
+      setPressure(pressNow)
+      if (pressNow !== null && pressThreeHoursAgo !== null) {
+        setPressureTrend(pressNow - pressThreeHoursAgo)
+      }
       setWaveHeight(marineResult.waveHeight)
+      setSeaTemp(marineResult.seaTemp)
       const usedSamePoint = marineResult.usedLat === lat && marineResult.usedLon === lon
-      if (!usedSamePoint && marineResult.waveHeight !== null) {
+      if (!usedSamePoint && (marineResult.waveHeight !== null || marineResult.seaTemp !== null)) {
         const dist = Math.round(Math.sqrt(
           Math.pow((marineResult.usedLat - lat) * 111, 2) +
           Math.pow((marineResult.usedLon - lon) * 111 * Math.cos(lat * Math.PI / 180), 2)
         ))
-        setWaveNote(`Bølgedata fra nærmeste kystpunkt (~${dist} km unna)`)
+        setWaveNote(`Marin data fra nærmeste kystpunkt (~${dist} km unna)`)
       }
     } catch { }
     setLoading(false)
@@ -88,8 +107,7 @@ export default function MainApp({ user, initialFavorites }: {
     const { data, error } = await supabase
       .from('favorite_locations')
       .insert({ user_id: user.id, name: location.name, lat: location.lat, lon: location.lon })
-      .select()
-      .single()
+      .select().single()
     if (!error && data) {
       setFavorites((prev: any[]) => [data, ...prev])
       setSaveMsg('Lagret!')
@@ -110,6 +128,7 @@ export default function MainApp({ user, initialFavorites }: {
   function getDayData(dayOffset: number) {
     if (!hourly) return null
     const start = dayOffset * 24
+    const moon = moonPhase(new Date())
     const scores = Array.from({ length: 24 }, (_, h) => {
       const i = start + h
       return calcScore(
@@ -118,7 +137,12 @@ export default function MainApp({ user, initialFavorites }: {
         hourly.temperature_2m[i] ?? 12,
         h,
         tideWeight,
-        waveHeight
+        waveHeight,
+        hourly.surface_pressure[i] ?? null,
+        pressureTrend,
+        seaTemp,
+        hourly.precipitation[i] ?? null,
+        moon.score
       )
     })
     const avg = Math.round(scores.reduce((a, b) => a + b, 0) / 24)
@@ -139,6 +163,7 @@ export default function MainApp({ user, initialFavorites }: {
   const nowH = new Date().getHours()
   const dayData = hourly ? getDayData(activeDay) : null
   const st = dayData ? getStatus(dayData.avg) : null
+  const moon = moonPhase(new Date())
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -169,11 +194,7 @@ export default function MainApp({ user, initialFavorites }: {
             <LocationSearch onSelect={handleLocationSelect} />
 
             {user && favorites.length > 0 && (
-              <FavoritesList
-                favorites={favorites}
-                onSelect={handleLocationSelect}
-                onRemove={handleRemoveFavorite}
-              />
+              <FavoritesList favorites={favorites} onSelect={handleLocationSelect} onRemove={handleRemoveFavorite} />
             )}
 
             {loading && <div className="text-center py-10 text-gray-400 text-sm">Henter værdata...</div>}
@@ -193,13 +214,14 @@ export default function MainApp({ user, initialFavorites }: {
                   <div className="text-center mb-5">
                     <div className="text-6xl font-medium text-gray-900">{dayData.avg}</div>
                     <div className={`text-sm font-medium mt-1 ${st.color}`}>{st.label}</div>
+                    <div className="text-xs text-gray-400 mt-1">{moon.emoji} {moon.name}</div>
                   </div>
                   <div className="space-y-2.5">
                     {[
                       { label: 'Vind', sub: `${dayData.wind} km/t`, pct: scoreWind(dayData.wind) },
                       { label: 'Tidspunkt', sub: activeDay === 0 ? `${nowH.toString().padStart(2, '0')}:00` : 'Snitt dag', pct: scoreHour(activeDay === 0 ? nowH : 12) },
                       { label: 'Skydekke', sub: `${dayData.cloud}%`, pct: scoreCloud(dayData.cloud) },
-                      { label: 'Temperatur', sub: `${dayData.temp}°C`, pct: scoreTemp(dayData.temp) },
+                      { label: 'Lufttemp', sub: `${dayData.temp}°C`, pct: scoreTemp(dayData.temp) },
                       { label: 'Tidevann', sub: tideLabel(nowH), pct: scoreTide(nowH) },
                     ].map(c => (
                       <div key={c.label} className="flex items-center gap-3">
@@ -218,10 +240,14 @@ export default function MainApp({ user, initialFavorites }: {
 
                 <MarineData
                   waveHeight={waveHeight}
+                  seaTemp={seaTemp}
                   windDirection={windDirection}
                   sunrise={sunrise}
                   sunset={sunset}
                   waveNote={waveNote}
+                  pressure={pressure}
+                  pressureTrend={pressureTrend}
+                  precipitation={precipitation}
                 />
 
                 <div className="bg-white border border-gray-200 rounded-xl p-4">
@@ -229,8 +255,7 @@ export default function MainApp({ user, initialFavorites }: {
                     <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Tidevannsvekt</p>
                     <span className="text-xs font-medium text-gray-600">{Math.round(tideWeight * 100)}%</span>
                   </div>
-                  <input
-                    type="range" min={0} max={40} step={5}
+                  <input type="range" min={0} max={40} step={5}
                     value={Math.round(tideWeight * 100)}
                     onChange={e => setTideWeight(Number(e.target.value) / 100)}
                     className="w-full accent-blue-500"
