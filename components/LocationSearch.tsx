@@ -33,6 +33,7 @@ export default function LocationSearch({ onSelect }: {
     const name = r.display_name.split(',').slice(0, 2).join(', ')
     setQuery(name)
     setOpen(false)
+    setResults([])
     onSelect({ lat: parseFloat(r.lat), lon: parseFloat(r.lon), name })
   }
 
