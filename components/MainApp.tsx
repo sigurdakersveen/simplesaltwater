@@ -288,13 +288,11 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shrink-0 z-20">
         <span className="font-medium text-gray-900 text-sm">SimpleSaltwater</span>
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5 text-xs text-gray-400">
-            <div className="w-2 h-2 rounded-full bg-amber-400 shrink-0"></div>
-            <span className="hidden sm:block">Skjellmalested</span>
+        <div className="flex items-center gap-3 flex-1 mx-4">
+          <div className="flex-1 max-w-xs">
+            <LocationSearch onSelect={flyToLocation} />
           </div>
-          {/* Map toggle */}
-          <div className="flex border border-gray-200 rounded-lg overflow-hidden">
+          <div className="flex border border-gray-200 rounded-lg overflow-hidden shrink-0">
             {(['kart', 'flyfoto', 'sjokart'] as MapType[]).map((type, i) => (
               <button
                 key={type}
@@ -338,10 +336,6 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
         <div className="flex-1 relative min-w-0">
           <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
           <div id="main-map" className="absolute inset-0" />
-
-          <div className="absolute top-3 left-3 z-10" style={{ width: '320px', maxWidth: 'calc(100% - 24px)' }}>
-            <LocationSearch onSelect={flyToLocation} />
-          </div>
 
           {mapLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-50 z-10">
