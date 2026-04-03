@@ -194,7 +194,7 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
           const color = colors[spot.type] || '#1d4ed8'
           const icon = L.divIcon({
             className: '',
-            html: '<div style="background:' + color + ';color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3);font-weight:500">' + spot.label + '</div>',
+            html: '<div style="background:' + color + ';color:#fff;font-size:10px;padding:3px 8px;border-radius:10px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.5);font-weight:600;border:1.5px solid rgba(255,255,255,0.4);text-shadow:0 1px 2px rgba(0,0,0,.6)">' + spot.label + '</div>',
             iconAnchor: [0, 10],
           })
           const m = L.marker([spot.lat, spot.lon], { icon }).addTo(mapRef.current)

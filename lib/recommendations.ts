@@ -203,54 +203,66 @@ function seededRandom(seed: number): number {
 
 export type Hotspot = { lat: number; lon: number; label: string; type: string }
 
+// Shorter offsets — stay closer to clicked point which is already in water
 export function generateHotspots(lat: number, lon: number, score: number): Hotspot[] {
   const seed = Math.round(lat * 1000) * 1000 + Math.round(lon * 1000)
   const spots = [
-    { dlat: 0.018, dlon: -0.025, label: 'Grunne naer land — torsk', type: 'cod' },
-    { dlat: -0.022, dlon: 0.031, label: 'Stromkant — aktiv fisk', type: 'current' },
-    { dlat: 0.035, dlon: 0.015, label: 'Dyprenne — sei og lyr', type: 'depth' },
-    { dlat: -0.012, dlon: -0.038, label: 'Holme — makrell og sjooret', type: 'shore' },
-    { dlat: 0.028, dlon: -0.012, label: 'Odde — godt fiskested', type: 'point' },
+    { dlat:  0.008, dlon: -0.012, label: 'Grunne — torsk', type: 'cod' },
+    { dlat: -0.010, dlon:  0.014, label: 'Stromkant', type: 'current' },
+    { dlat:  0.014, dlon:  0.006, label: 'Dyprenne', type: 'depth' },
+    { dlat: -0.006, dlon: -0.016, label: 'Makrell/sjooret', type: 'shore' },
+    { dlat:  0.012, dlon: -0.005, label: 'Godt fiskested', type: 'point' },
   ]
   return spots.map((s, i) => ({
-    lat: lat + s.dlat + (seededRandom(seed + i * 7) - 0.5) * 0.008,
-    lon: lon + s.dlon + (seededRandom(seed + i * 13) - 0.5) * 0.008,
+    lat: lat + s.dlat + (seededRandom(seed + i * 7) - 0.5) * 0.004,
+    lon: lon + s.dlon + (seededRandom(seed + i * 13) - 0.5) * 0.004,
     label: s.label,
     type: s.type,
   }))
 }
 
-// Check if a point is at sea using Nominatim reverse geocode
+// Robust sea check — uses Nominatim class/type fields
+async function isAtSea(lat: number, lon: number): Promise<boolean> {
+  try {
+    const res = await fetch(
+      'https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lon + '&format=json&zoom=12',
+      { headers: { 'Accept-Language': 'nb' } }
+    )
+    const data = await res.json()
+
+    // Nominatim returns error object when point is at sea
+    if (data.error) return true
+
+    const cls = data.class ?? ''
+    const type = data.type ?? ''
+
+    // Explicit water/sea types
+    if (cls === 'natural' && (type === 'water' || type === 'sea' || type === 'bay' || type === 'strait')) return true
+    if (cls === 'waterway') return true
+
+    // Land indicators
+    const addr = data.address ?? {}
+    const hasLand = addr.road || addr.residential || addr.suburb ||
+      addr.city || addr.town || addr.village || addr.hamlet ||
+      addr.building || addr.house_number || addr.retail || addr.industrial
+
+    if (hasLand) return false
+
+    // No land address — likely sea
+    return true
+  } catch {
+    return true // keep on network error
+  }
+}
+
 export async function filterSeaHotspots(spots: Hotspot[]): Promise<Hotspot[]> {
-  const results = await Promise.all(
-    spots.map(async (spot) => {
-      try {
-        const res = await fetch(
-          'https://nominatim.openstreetmap.org/reverse?lat=' + spot.lat + '&lon=' + spot.lon + '&format=json&zoom=10',
-          { headers: { 'Accept-Language': 'nb' } }
-        )
-        const data = await res.json()
-        const type = data.type ?? ''
-        const category = data.category ?? ''
-        const osmType = data.osm_type ?? ''
-        // Keep point if it's sea/water — not land features
-        const isLand = data.address && (
-          data.address.road ||
-          data.address.residential ||
-          data.address.suburb ||
-          data.address.city ||
-          data.address.town ||
-          data.address.village ||
-          data.address.hamlet ||
-          data.address.building
-        )
-        const isSea = type === 'water' || category === 'natural' || !data.address?.road
-        if (isLand) return null
-        return spot
-      } catch {
-        return spot // keep on error
-      }
-    })
-  )
+  // Check in parallel with small delay to avoid rate limiting
+  const results: (Hotspot | null)[] = []
+  for (let i = 0; i < spots.length; i++) {
+    const spot = spots[i]
+    if (i > 0) await new Promise(r => setTimeout(r, 120))
+    const sea = await isAtSea(spot.lat, spot.lon)
+    results.push(sea ? spot : null)
+  }
   return results.filter((s): s is Hotspot => s !== null)
 }
