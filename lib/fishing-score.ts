@@ -37,25 +37,49 @@ export function scoreHour(h: number) {
   return 55
 }
 
-// Simulert tidevann — returnerer høyde 0-100
 export function simulateTide(h: number): number {
   return 50 + 50 * Math.sin((h - 3) * Math.PI / 6)
 }
 
-// Tidevannsscore for fiske:
-// Stigende = best, høyvann = bra, fallende = middels, lavvann = dårlig
 export function scoreTide(hour: number): number {
   const current = simulateTide(hour)
   const prev = simulateTide(hour - 0.5)
   const rising = current > prev
-
-  if (rising && current > 70) return 100  // stigende mot høyvann
-  if (rising && current > 40) return 85   // stigende fra lavvann
-  if (!rising && current > 70) return 70  // rundt høyvann, fallende
-  if (current > 80) return 65             // høyvann
-  if (!rising && current < 30) return 25  // lavvann
-  if (!rising) return 45                  // fallende
+  if (rising && current > 70) return 100
+  if (rising && current > 40) return 85
+  if (!rising && current > 70) return 70
+  if (current > 80) return 65
+  if (!rising && current < 30) return 25
+  if (!rising) return 45
   return 60
+}
+
+export function tideLabel(hour: number): string {
+  const current = simulateTide(hour)
+  const prev = simulateTide(hour - 0.5)
+  const rising = current > prev
+  if (current > 80) return 'Høyvann'
+  if (current < 20) return 'Lavvann'
+  return rising ? 'Stigende' : 'Fallende'
+}
+
+export function scoreWave(waveHeight: number | null): number {
+  if (waveHeight === null) return 70
+  if (waveHeight < 0.3) return 100
+  if (waveHeight <= 0.8) return 90
+  if (waveHeight <= 1.5) return 65
+  if (waveHeight <= 2.5) return 30
+  return 10
+}
+
+export function windDirectionLabel(degrees: number): string {
+  const dirs = ['N', 'NØ', 'Ø', 'SØ', 'S', 'SV', 'V', 'NV']
+  return dirs[Math.round(degrees / 45) % 8]
+}
+
+export function formatSunTime(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })
 }
 
 export function calcScore(
@@ -63,9 +87,9 @@ export function calcScore(
   cloud: number,
   temp: number,
   hour: number,
-  tideWeight: number = 0.20
+  tideWeight: number = 0.20,
+  waveHeight: number | null = null
 ): number {
-  // Fordel resterende vekt likt på de andre 4
   const remaining = 1 - tideWeight
   const w = {
     wind: remaining * 0.33,
@@ -73,7 +97,6 @@ export function calcScore(
     cloud: remaining * 0.20,
     temp: remaining * 0.14,
   }
-
   return Math.round(
     scoreWind(wind) * w.wind +
     scoreHour(hour) * w.time +
@@ -88,13 +111,4 @@ export function getStatus(score: number) {
   if (score >= 55) return { label: 'OK forhold', color: 'text-blue-600' }
   if (score >= 35) return { label: 'Middels', color: 'text-amber-600' }
   return { label: 'Dårlige forhold', color: 'text-red-600' }
-}
-
-export function tideLabel(hour: number): string {
-  const current = simulateTide(hour)
-  const prev = simulateTide(hour - 0.5)
-  const rising = current > prev
-  if (current > 80) return 'Høyvann'
-  if (current < 20) return 'Lavvann'
-  return rising ? 'Stigende' : 'Fallende'
 }

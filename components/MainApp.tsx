@@ -11,12 +11,14 @@ import ThreeDayForecast from './ThreeDayForecast'
 import FavoritesList from './FavoritesList'
 import FishingLogForm from './FishingLogForm'
 import FavoritesComparison from './FavoritesComparison'
+import MarineData from './MarineData'
 
 type Location = { lat: number; lon: number; name: string }
 type HourlyData = {
   wind_speed_10m: number[]
   cloud_cover: number[]
   temperature_2m: number[]
+  winddirection_10m: number[]
 }
 
 export default function MainApp({ user, initialFavorites }: {
@@ -31,17 +33,32 @@ export default function MainApp({ user, initialFavorites }: {
   const [showLog, setShowLog] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
   const [tideWeight, setTideWeight] = useState(0.20)
+  const [waveHeight, setWaveHeight] = useState<number | null>(null)
+  const [windDirection, setWindDirection] = useState<number | null>(null)
+  const [sunrise, setSunrise] = useState<string | null>(null)
+  const [sunset, setSunset] = useState<string | null>(null)
   const supabase = createClient()
   const router = useRouter()
 
   const fetchWeather = useCallback(async (lat: number, lon: number) => {
     setLoading(true)
     setHourly(null)
+    setWaveHeight(null)
+    setWindDirection(null)
+    setSunrise(null)
+    setSunset(null)
     try {
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=wind_speed_10m,cloud_cover,temperature_2m&forecast_days=3&wind_speed_unit=kmh&timezone=auto`
-      const r = await fetch(url)
-      const d = await r.json()
-      setHourly(d.hourly)
+      const [weatherRes, marineRes] = await Promise.all([
+        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=wind_speed_10m,cloud_cover,temperature_2m,winddirection_10m&daily=sunrise,sunset&forecast_days=3&wind_speed_unit=kmh&timezone=auto`),
+        fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&current=wave_height&timezone=auto`)
+      ])
+      const weather = await weatherRes.json()
+      const marine = await marineRes.json()
+      setHourly(weather.hourly)
+      setSunrise(weather.daily?.sunrise?.[0] ?? null)
+      setSunset(weather.daily?.sunset?.[0] ?? null)
+      setWindDirection(weather.hourly?.winddirection_10m?.[new Date().getHours()] ?? null)
+      setWaveHeight(marine.current?.wave_height ?? null)
     } catch { }
     setLoading(false)
   }, [])
@@ -90,7 +107,8 @@ export default function MainApp({ user, initialFavorites }: {
         hourly.cloud_cover[i] ?? 50,
         hourly.temperature_2m[i] ?? 12,
         h,
-        tideWeight
+        tideWeight,
+        waveHeight
       )
     })
     const avg = Math.round(scores.reduce((a, b) => a + b, 0) / 24)
@@ -170,6 +188,7 @@ export default function MainApp({ user, initialFavorites }: {
                     {[
                       { label: 'Vind', sub: `${dayData.wind} km/t`, pct: scoreWind(dayData.wind) },
                       { label: 'Tidspunkt', sub: activeDay === 0 ? `${nowH.toString().padStart(2, '0')}:00` : 'Snitt dag', pct: scoreHour(activeDay === 0 ? nowH : 12) },
+                      { label: 'Skydekke', sub: `${dayData.cloud}%`, pct: scoreCloud(dayData.cloud) },
                       { label: 'Temperatur', sub: `${dayData.temp}°C`, pct: scoreTemp(dayData.temp) },
                       { label: 'Tidevann', sub: tideLabel(nowH), pct: scoreTide(nowH) },
                     ].map(c => (
@@ -186,6 +205,14 @@ export default function MainApp({ user, initialFavorites }: {
                     ))}
                   </div>
                 </div>
+
+                <MarineData
+                  waveHeight={waveHeight}
+                  windDirection={windDirection}
+                  sunrise={sunrise}
+                  sunset={sunset}
+                />
+
                 <div className="bg-white border border-gray-200 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Tidevannsvekt</p>
@@ -208,6 +235,7 @@ export default function MainApp({ user, initialFavorites }: {
                     Tidevann nå: <span className="font-medium text-gray-600">{tideLabel(nowH)}</span> — score: <span className="font-medium text-gray-600">{scoreTide(nowH)}</span>
                   </p>
                 </div>
+
                 <div className="bg-white border border-gray-200 rounded-xl p-4">
                   <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Beste tider</p>
                   <div className="flex gap-2 flex-wrap">
