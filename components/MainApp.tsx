@@ -11,7 +11,7 @@ import { fetchMarineData } from '@/lib/marine'
 import { fetchTideData, type TideData } from '@/lib/tide'
 import {
   getRecommendation, getFishTypeModifier, getDivingScore,
-  generateHotspots, filterSeaHotspots, type FishType, type AppMode, type Hotspot
+  type FishType, type AppMode
 } from '@/lib/recommendations'
 import LocationSearch from './LocationSearch'
 import FavoritesList from './FavoritesList'
@@ -96,7 +96,6 @@ function dayLabel(offset: number) {
 export default function MainApp({ user, initialFavorites }: { user: any; initialFavorites: any[] }) {
   const mapRef = useRef<any>(null)
   const markerRef = useRef<any>(null)
-  const hotspotMarkersRef = useRef<any[]>([])
   const tileLayerRef = useRef<any>(null)
   const [favorites, setFavorites] = useState(initialFavorites)
   const [selected, setSelected] = useState<PointData | null>(null)
@@ -178,31 +177,7 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
     return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null } }
   }, [])
 
-  // Add hotspot markers when selected changes — filtered to sea only
-  useEffect(() => {
-    if (!mapRef.current || !selected) return
-    hotspotMarkersRef.current.forEach(m => m.remove())
-    hotspotMarkersRef.current = []
-    const rawSpots = generateHotspots(selected.location.lat, selected.location.lon, selected.score)
 
-    // Filter to sea, then add markers
-    filterSeaHotspots(rawSpots).then(spots => {
-      if (!mapRef.current) return
-      import('leaflet').then(L => {
-        spots.forEach(spot => {
-          const colors: Record<string, string> = { cod: '#1d4ed8', current: '#7c3aed', depth: '#0f766e', shore: '#b45309', point: '#15803d' }
-          const color = colors[spot.type] || '#1d4ed8'
-          const icon = L.divIcon({
-            className: '',
-            html: '<div style="background:' + color + ';color:#fff;font-size:10px;padding:3px 8px;border-radius:10px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.5);font-weight:600;border:1.5px solid rgba(255,255,255,0.4);text-shadow:0 1px 2px rgba(0,0,0,.6)">' + spot.label + '</div>',
-            iconAnchor: [0, 10],
-          })
-          const m = L.marker([spot.lat, spot.lon], { icon }).addTo(mapRef.current)
-          hotspotMarkersRef.current.push(m)
-        })
-      })
-    })
-  }, [selected?.location.lat, selected?.location.lon])
 
   function switchMapType(type: MapType) {
     setMapType(type)
@@ -265,6 +240,61 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
   const urgencyTextStyles = { now: 'text-green-800', soon: 'text-blue-800', wait: 'text-amber-800', danger: 'text-red-800' }
   const urgencySubStyles = { now: 'text-green-600', soon: 'text-blue-600', wait: 'text-amber-600', danger: 'text-red-600' }
 
+  // Area analysis based on actual data
+  function getAreaAnalysis(): { points: { icon: string; text: string; good: boolean }[] } | null {
+    if (!selected) return null
+    const points: { icon: string; text: string; good: boolean }[] = []
+    const h = nowH
+
+    // Wind
+    if (selected.wind <= 8) points.push({ icon: '💨', text: 'Svak vind — rolige overflateforhold', good: true })
+    else if (selected.wind <= 18) points.push({ icon: '💨', text: `${selected.wind} km/t vind — akseptabelt`, good: true })
+    else if (selected.wind <= 28) points.push({ icon: '💨', text: `${selected.wind} km/t vind — reduserer sikt og biting`, good: false })
+    else points.push({ icon: '💨', text: `${selected.wind} km/t vind — krevende forhold`, good: false })
+
+    // Waves
+    if (selected.waveHeight !== null) {
+      if (selected.waveHeight < 0.4) points.push({ icon: '🌊', text: 'Blikk stille — ideelt for overflatefiske', good: true })
+      else if (selected.waveHeight < 1.0) points.push({ icon: '🌊', text: `${selected.waveHeight.toFixed(1)}m bolger — bra`, good: true })
+      else if (selected.waveHeight < 1.8) points.push({ icon: '🌊', text: `${selected.waveHeight.toFixed(1)}m bolger — moderat`, good: false })
+      else points.push({ icon: '🌊', text: `${selected.waveHeight.toFixed(1)}m bolger — vanskelig`, good: false })
+    }
+
+    // Pressure trend
+    if (selected.pressureTrend !== null) {
+      if (selected.pressureTrend < -2) points.push({ icon: '📉', text: 'Fallende lufttrykk — fisken er aktiv', good: true })
+      else if (selected.pressureTrend > 2) points.push({ icon: '📈', text: 'Stigende lufttrykk — fisken trekker seg', good: false })
+      else points.push({ icon: '📊', text: 'Stabilt lufttrykk — normalt aktivitetsniva', good: true })
+    }
+
+    // Sea temp
+    if (selected.seaTemp !== null) {
+      if (selected.seaTemp < 4) points.push({ icon: '🌡️', text: `${selected.seaTemp.toFixed(1)}°C havtemp — svært kaldt, lav aktivitet`, good: false })
+      else if (selected.seaTemp < 10) points.push({ icon: '🌡️', text: `${selected.seaTemp.toFixed(1)}°C havtemp — kaldt men OK for torsk`, good: true })
+      else if (selected.seaTemp <= 17) points.push({ icon: '🌡️', text: `${selected.seaTemp.toFixed(1)}°C havtemp — optimalt`, good: true })
+      else points.push({ icon: '🌡️', text: `${selected.seaTemp.toFixed(1)}°C havtemp — varmt, makrell aktiv`, good: true })
+    }
+
+    // Time of day
+    if (h >= 5 && h <= 8) points.push({ icon: '🌅', text: 'Tidlig morgen — beste bitetid', good: true })
+    else if (h >= 17 && h <= 20) points.push({ icon: '🌇', text: 'Kveld — aktiv bitetid', good: true })
+    else if (h >= 22 || h <= 4) points.push({ icon: '🌙', text: 'Natt — lav aktivitet for de fleste arter', good: false })
+    else if (h >= 10 && h <= 15) points.push({ icon: '☀️', text: 'Midtdag — moderat aktivitet', good: false })
+    else points.push({ icon: '⏰', text: 'Grei tid pa dagen', good: true })
+
+    // Current
+    if (selected.currentSpeed !== null) {
+      if (selected.currentSpeed < 0.2) points.push({ icon: '🔄', text: 'Nesten ingen strom — beveger lite naering', good: false })
+      else if (selected.currentSpeed <= 0.6) points.push({ icon: '🔄', text: 'Moderat strom — bra for fisk', good: true })
+      else if (selected.currentSpeed <= 1.2) points.push({ icon: '🔄', text: 'Sterk strom — vanskelig a holde agnet', good: false })
+    }
+
+    return { points }
+  }
+
+  const areaAnalysis = getAreaAnalysis()
+
+
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-gray-50">
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shrink-0 z-20">
@@ -315,7 +345,7 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
           <div className="w-72 shrink-0 border-l border-gray-200 bg-white overflow-y-auto flex flex-col">
             <div className="flex items-center justify-between px-4 pt-4 pb-2 border-b border-gray-100 shrink-0">
               <p className="text-xs text-gray-500 truncate flex-1 mr-2">{selected.location.name}</p>
-              <button onClick={() => { setSelected(null); setTideData(null); hotspotMarkersRef.current.forEach(m => m.remove()); hotspotMarkersRef.current = [] }} className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 text-base leading-none">x</button>
+              <button onClick={() => { setSelected(null); setTideData(null) }} className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 text-base leading-none">x</button>
             </div>
 
             <div className="p-4 space-y-3 flex-1">
@@ -477,6 +507,21 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
                       <p className="text-xs text-gray-500 mb-1">Naermeste: <span className="font-medium text-gray-700">{shellfish.station.name}</span> (~{shellfish.distKm} km)</p>
                       {isShellSeason() ? <p className="text-xs text-amber-700 mb-1">Sjekk Mattilsynet for ukens varsel</p> : <p className="text-xs text-gray-400 mb-1">Utenfor sesong (mars–oktober)</p>}
                       <a href="https://www.mattilsynet.no/mat-og-drikke/forbrukere/blaskjellvarsel" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 underline">Se varsel pa Mattilsynet.no</a>
+                    </div>
+                  )}
+
+                  {/* Area analysis */}
+                  {areaAnalysis && (
+                    <div>
+                      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Omradeanalyse</p>
+                      <div className="space-y-1.5">
+                        {areaAnalysis.points.map((p, i) => (
+                          <div key={i} className={'flex items-start gap-2 rounded-lg px-2.5 py-2 ' + (p.good ? 'bg-green-50' : 'bg-red-50')}>
+                            <span className="text-sm shrink-0">{p.icon}</span>
+                            <p className={'text-xs ' + (p.good ? 'text-green-800' : 'text-red-700')}>{p.text}</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 
