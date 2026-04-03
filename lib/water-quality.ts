@@ -1,239 +1,185 @@
 /**
- * Vannkvalitetsestimering for SimpleSaltwater
+ * Vannkvalitet for SimpleSaltwater
  *
- * Kilder og vitenskapelig grunnlag:
- * - Løst oksygen (DO): Beregnet fra havtemperatur og saltholdighet via Garcia & Gordon (1992)
- *   forenklet modell. Norsk kystvann: optimal DO for marin fisk er 7–10 mg/L.
- *   Kilde: Havforskningsinstituttet, NorESM-modellen, EPA DO factsheet
- * - Klorofyll-a estimat: Basert på sesong og temperatur. Norsk kyst har
- *   våroppblomstring april–juni og høstoppblomstring august–september.
- *   Kilde: Havforskningsinstituttet kystovervåking, NIVA kystovervåkningsprogram
- * - Saltholdighet: Norsk ytre kyst ~32–35 ppt, fjorder ~25–32 ppt.
- *   Høy nedbør og elveavrenning reduserer saltholdighet.
- *   Kilde: NorKyst800 modell (HI/ROMS), Albretsen et al. 2011
- * - Turbiditet: Estimert fra nedbør, vind og bølger.
- *   Kilde: NIVA kystovervåkningsprogram
- * - pH: Norsk åpent hav ~8.1–8.2, synker noe kyst/fjord.
- *   Kilde: Havforskningsinstituttet forsuringsovervåking
+ * Tilnærming: Dokumenterte soner + sesong + værpåvirkning.
+ * Vi estimerer IKKE kjemi vi ikke kan måle. Vi viser kjent tilstand
+ * fra offentlige norske kilder, og justerer for årstid og nedbør.
+ *
+ * Kilder:
+ * - Miljødirektoratet: Helhetlig tiltaksplan for Oslofjorden (2021, 2025)
+ * - NIVA: Kystovervåkningsprogram, Oslofjord-tilstandsrapporter
+ * - Havforskningsinstituttet: Kystovervåking, NorKyst800
+ * - Regjeringen.no: Oslofjorden tilstandsvurdering 2025
  */
 
+export type WaterQualityZone = {
+  name: string
+  baseScore: number       // 0–100, dokumentert grunnivå
+  description: string     // Kort faktabasert beskrivelse
+  source: string          // Kilde
+  issues: string[]        // Kjente problemer
+}
+
 export type WaterQuality = {
-  dissolvedOxygen: number        // mg/L estimert
-  oxygenSaturation: number       // % metning
-  chlorophyll: 'lav' | 'moderat' | 'hoy' | 'oppblomstring'
-  salinity: number               // ppt estimert
-  turbidity: 'klar' | 'moderat' | 'uklar'
-  pH: number                     // estimert
-  score: number                  // 0–100 for fiske
+  zone: WaterQualityZone
+  score: number           // Justert for sesong/vær
   label: string
   color: string
   factors: { icon: string; text: string; good: boolean }[]
-  sources: string[]
+  isEstimated: boolean    // Om vi bruker sone eller generell estimat
 }
 
 /**
- * Beregn estimert løst oksygen (mg/L) fra temperatur og saltholdighet
- * Forenklet versjon av Garcia & Gordon (1992) Benson-Krause tabell
+ * Kjente problemsoner langs norskekysten med dokumentert tilstand.
+ * Grenser er bounding boxes (minLat, maxLat, minLon, maxLon).
  */
-function estimateDO(tempC: number, salinityPpt: number): number {
-  // Oksygenmetning i ferskvann ved gitt temperatur (mg/L ved 100% metning)
-  const doFresh =
-    14.62 - 0.3898 * tempC + 0.006969 * tempC * tempC - 0.00005596 * tempC * tempC * tempC
+const KNOWN_ZONES: Array<WaterQualityZone & {
+  bounds: { minLat: number; maxLat: number; minLon: number; maxLon: number }
+}> = [
+  {
+    name: 'Indre Oslofjord',
+    bounds: { minLat: 59.7, maxLat: 59.95, minLon: 10.4, maxLon: 10.8 },
+    baseScore: 28,
+    description: 'Svært alvorlig miljøtilstand. Dårlig kjemisk tilstand, oksygensvikt i dypvannet, kollaps av torskebestand og tilbakegang av tareskog og ålegrasenger.',
+    source: 'Miljødirektoratet / Regjeringen 2025, NIVA',
+    issues: ['Oksygensvikt i bunnvann', 'Overgjødsling fra avløp og landbruk', 'Historisk lavt torskenivå', 'Høyt mikroplastnivå'],
+  },
+  {
+    name: 'Ytre Oslofjord / Drøbak-Færder',
+    bounds: { minLat: 59.3, maxLat: 59.7, minLon: 10.3, maxLon: 10.7 },
+    baseScore: 48,
+    description: 'Moderat økologisk tilstand. Bedre enn indre fjord, men fortsatt påvirket av næringssalter fra landbruk og avløp. Ytre deler mot Færder er best.',
+    source: 'SALT kunnskapsstatus Oslofjorden 2019, Miljødirektoratet',
+    issues: ['Næringssalttilførsel', 'Redusert bunnfauna i Bunnefjorden', 'Negative trender for dyreplankton'],
+  },
+  {
+    name: 'Skagerrakkysten (Vestfold–Telemark)',
+    bounds: { minLat: 59.0, maxLat: 59.3, minLon: 9.8, maxLon: 10.5 },
+    baseScore: 60,
+    description: 'Moderat til god tilstand langs ytre kyst. Påvirket av tilførsler fra Oslofjorden og lokalt landbruk. Generelt bedre enn selve Oslofjorden.',
+    source: 'NIVA kystovervåkningsprogram',
+    issues: ['Periodevis algeoppblomstring', 'Tilrenning fra Oslofjorden'],
+  },
+  {
+    name: 'Hvaler / Ytre Hvaler',
+    bounds: { minLat: 59.0, maxLat: 59.2, minLon: 10.7, maxLon: 11.1 },
+    baseScore: 62,
+    description: 'Ytre Hvaler nasjonalpark. Relativt god tilstand i ytre deler. Nasjonalparkstatus gir noe vern, men fortsatt under press fra Glomma-avrenning.',
+    source: 'Miljødirektoratet, SALT Oslofjord-rapport 2019',
+    issues: ['Glomma-avrenning', 'Partikkelbelasting ved flom'],
+  },
+  {
+    name: 'Grenlandsfjordene',
+    bounds: { minLat: 58.9, maxLat: 59.2, minLon: 9.4, maxLon: 9.9 },
+    baseScore: 45,
+    description: 'Historisk forurenset fra industri (Herøya). Bedret tilstand etter industriopprydding, men bunnsdiment inneholder fortsatt miljøgifter.',
+    source: 'Miljødirektoratet, NIVA',
+    issues: ['Historisk industriforurensning', 'Miljøgifter i sediment'],
+  },
+]
 
-  // Saltholdighetskorrigering: ~2% reduksjon per 5 ppt saltholdighet
-  const salinityFactor = 1 - (salinityPpt / 1000) * 0.9
-  return Math.round((doFresh * salinityFactor) * 10) / 10
+function findZone(lat: number, lon: number): WaterQualityZone | null {
+  for (const zone of KNOWN_ZONES) {
+    const b = zone.bounds
+    if (lat >= b.minLat && lat <= b.maxLat && lon >= b.minLon && lon <= b.maxLon) {
+      return zone
+    }
+  }
+  return null
 }
 
 /**
- * Estimer saltholdighet basert på posisjon og nedbør
- * Norsk ytre kyst: 32–35 ppt
- * Nedbør og elveavrenning trekker ned
+ * Sesong- og værmessige justeringer — gjelder overalt
  */
-function estimateSalinity(lat: number, lon: number, precipMm: number | null): number {
-  // Basesaltholdighet: ytre kyst høyere enn indre farvann
-  // Grovt: jo lenger ut, jo høyere. Bruker lon som proxy for eksponerthet
-  const baseSalinity = lon < 8 ? 33.5 : lon < 15 ? 33.0 : 32.5
+function getSeasonalAdjustment(month: number, precipMm: number | null, wind: number): number {
+  let adj = 0
 
-  // Nedbørsreduksjon
-  const precipEffect = precipMm ? Math.min(2.5, precipMm * 0.3) : 0
+  // Våroppblomstring langs norskekysten: april–juni
+  // Kraftig algeoppblomstring kan redusere oksygen og sikt
+  if (month >= 4 && month <= 6) adj -= 5
 
-  // Sesongvariasjon: snøsmelting mars–mai trekker ned
-  const month = new Date().getMonth() + 1
-  const meltEffect = (month >= 3 && month <= 5) ? 0.8 : 0
+  // Sommer: høy temperatur = lavere oksygenmetning, mer algevekst
+  if (month >= 6 && month <= 8) adj -= 8
 
-  return Math.round((baseSalinity - precipEffect - meltEffect) * 10) / 10
+  // Høst: bedre omrøring, lavere temp = bedre oksygen
+  if (month >= 9 && month <= 11) adj += 5
+
+  // Vinter: god oksygenmetning, lite alger
+  if (month <= 3 || month === 12) adj += 8
+
+  // Kraftig nedbør = avrenning og turbiditet
+  if ((precipMm ?? 0) > 5) adj -= 10
+  else if ((precipMm ?? 0) > 2) adj -= 4
+
+  // Sterk vind = omrøring (positivt for oksygen)
+  if (wind > 15 && wind <= 30) adj += 3
+
+  return adj
 }
 
-/**
- * Estimer klorofyll-a nivå basert på årstid og havtemp
- * Norsk kyst våroppblomstring: april–juni
- * Høstoppblomstring: august–september
- * Kilde: HI Kystovervåkningsprogram, NIVA
- */
-function estimateChlorophyll(seaTemp: number | null, month: number): WaterQuality['chlorophyll'] {
-  const temp = seaTemp ?? 10
-
-  // Våroppblomstring: april–juni, best ved 8–14°C
-  if (month >= 4 && month <= 6 && temp >= 6 && temp <= 15) return 'oppblomstring'
-
-  // Høstoppblomstring: august–september
-  if (month >= 8 && month <= 9 && temp >= 10 && temp <= 18) return 'hoy'
-
-  // Vinter/tidlig vår: lite lys, lite klorofyll
-  if (month <= 3 || month === 12) return 'lav'
-
-  // Sommer: moderat, varmt vann hemmer litt
-  if (month >= 6 && month <= 8 && temp > 16) return 'moderat'
-
-  return 'moderat'
-}
-
-/**
- * Turbiditet basert på vind, bølger og nedbør
- */
-function estimateTurbidity(
-  wind: number,
-  waveHeight: number | null,
-  precipMm: number | null
-): WaterQuality['turbidity'] {
-  const wave = waveHeight ?? 0
-  const precip = precipMm ?? 0
-
-  if (precip > 5 || wind > 30 || wave > 2.5) return 'uklar'
-  if (precip > 2 || wind > 15 || wave > 1.2) return 'moderat'
-  return 'klar'
-}
-
-/**
- * Beregn vannkvalitetsscore (0–100) for fiske
- * Basert på HI og NIVA sine normer for norsk kystvann
- */
 export function calcWaterQuality(
+  lat: number,
+  lon: number,
   seaTemp: number | null,
   precipMm: number | null,
-  wind: number,
-  waveHeight: number | null,
-  lat: number,
-  lon: number
+  wind: number
 ): WaterQuality {
   const month = new Date().getMonth() + 1
-  const temp = seaTemp ?? 10
+  const zone = findZone(lat, lon)
+  const seasonAdj = getSeasonalAdjustment(month, precipMm, wind)
 
-  const salinity = estimateSalinity(lat, lon, precipMm)
-  const do_mgL = estimateDO(temp, salinity)
-  const doSaturation = Math.min(120, Math.round((do_mgL / 14.62) * 100))
-  const chlorophyll = estimateChlorophyll(seaTemp, month)
-  const turbidity = estimateTurbidity(wind, waveHeight, precipMm)
-  const pH = 8.15 - (precipMm ?? 0) * 0.01 - (salinity < 30 ? 0.05 : 0)
+  if (zone) {
+    const score = Math.min(100, Math.max(5, zone.baseScore + seasonAdj))
+    const factors: { icon: string; text: string; good: boolean }[] = []
 
-  const factors: { icon: string; text: string; good: boolean }[] = []
+    // Known issues
+    zone.issues.forEach(issue => {
+      factors.push({ icon: '⚠️', text: issue, good: false })
+    })
 
-  // --- Løst oksygen ---
-  // Optimal for norsk kystfisk: 7–10 mg/L (HI)
-  let doScore = 100
-  if (do_mgL >= 8) {
-    doScore = 100
-    factors.push({ icon: '🫧', text: `Oksygen: ${do_mgL} mg/L — utmerket for fisk`, good: true })
-  } else if (do_mgL >= 6.5) {
-    doScore = 75
-    factors.push({ icon: '🫧', text: `Oksygen: ${do_mgL} mg/L — akseptabelt`, good: true })
+    // Seasonal
+    if (month >= 4 && month <= 6) factors.push({ icon: '🌿', text: 'Våroppblomstring kan gi algevekst og redusert oksygen', good: false })
+    if (month >= 9 && month <= 11) factors.push({ icon: '💧', text: 'Høst: god omrøring og oksygenmetning', good: true })
+    if (month <= 3 || month === 12) factors.push({ icon: '❄️', text: 'Vinter: høy oksygenmetning, lite algevekst', good: true })
+
+    // Rain
+    if ((precipMm ?? 0) > 5) factors.push({ icon: '🌧️', text: 'Kraftig nedbør øker avrenning og turbiditet', good: false })
+
+    let label = ''
+    let color = ''
+    if (score >= 75) { label = 'God vannkvalitet'; color = 'text-green-600' }
+    else if (score >= 55) { label = 'Moderat vannkvalitet'; color = 'text-blue-600' }
+    else if (score >= 35) { label = 'Dårlig vannkvalitet'; color = 'text-amber-600' }
+    else { label = 'Svært dårlig vannkvalitet'; color = 'text-red-600' }
+
+    return { zone, score, label, color, factors, isEstimated: false }
+
   } else {
-    doScore = 35
-    factors.push({ icon: '🫧', text: `Oksygen: ${do_mgL} mg/L — lavt, fisken stresses`, good: false })
-  }
+    // Utenfor kjente soner — generell norsk ytre kyst
+    // Generelt god tilstand, men lite detaljkunnskap
+    const baseScore = 72
+    const score = Math.min(100, Math.max(20, baseScore + seasonAdj))
+    const factors: { icon: string; text: string; good: boolean }[] = []
 
-  // --- Klorofyll / næring ---
-  let chlScore = 70
-  switch (chlorophyll) {
-    case 'oppblomstring':
-      chlScore = 100
-      factors.push({ icon: '🌿', text: 'Våroppblomstring — mye næring, aktiv nærings-kjede', good: true })
-      break
-    case 'hoy':
-      chlScore = 90
-      factors.push({ icon: '🌿', text: 'Hoy klorofyll — god næringstilgang for fisk', good: true })
-      break
-    case 'moderat':
-      chlScore = 70
-      factors.push({ icon: '🌿', text: 'Moderat klorofyll — normalt for årstiden', good: true })
-      break
-    case 'lav':
-      chlScore = 40
-      factors.push({ icon: '🌿', text: 'Lav klorofyll — lite næring i vannet', good: false })
-      break
-  }
+    if (month >= 4 && month <= 6) factors.push({ icon: '🌿', text: 'Våroppblomstring langs kysten — økt algeaktivitet', good: false })
+    if (month >= 9 && month <= 11) factors.push({ icon: '💧', text: 'Høst: god oksygenmetning i norsk kystvann', good: true })
+    if ((precipMm ?? 0) > 5) factors.push({ icon: '🌧️', text: 'Nedbør og avrenning reduserer siktdyp', good: false })
+    if ((precipMm ?? 0) <= 1) factors.push({ icon: '💧', text: 'Lite nedbør — klart vann', good: true })
 
-  // --- Turbiditet ---
-  let turbScore = 100
-  switch (turbidity) {
-    case 'klar':
-      turbScore = 100
-      factors.push({ icon: '💧', text: 'Klart vann — bra sikt for rovfisk', good: true })
-      break
-    case 'moderat':
-      turbScore = 70
-      factors.push({ icon: '💧', text: 'Moderat uklart vann — OK for de fleste arter', good: true })
-      break
-    case 'uklar':
-      turbScore = 35
-      factors.push({ icon: '💧', text: 'Uklart vann — nedbør eller bolger rorer opp', good: false })
-      break
-  }
+    const generalZone: WaterQualityZone = {
+      name: 'Norsk ytre kyst',
+      baseScore,
+      description: 'Ingen spesifikk tilstandsdata for dette området. Norsk ytre kyst er generelt i god stand, men kan variere lokalt. Sjekk Miljødirektoratets Vann-Nett for lokale data.',
+      source: 'Generell vurdering — ikke stedsspesifikk',
+      issues: [],
+    }
 
-  // --- Saltholdighet ---
-  let salScore = 100
-  if (salinity >= 30) {
-    factors.push({ icon: '🧂', text: `Saltholdighet ~${salinity} ppt — normalt norsk kystvann`, good: true })
-    salScore = 100
-  } else if (salinity >= 25) {
-    factors.push({ icon: '🧂', text: `Saltholdighet ~${salinity} ppt — noe fortynnet`, good: true })
-    salScore = 75
-  } else {
-    factors.push({ icon: '🧂', text: `Saltholdighet ~${salinity} ppt — lavt, kan pavirke saltvannsarter`, good: false })
-    salScore = 40
-  }
+    let label = ''
+    let color = ''
+    if (score >= 75) { label = 'God vannkvalitet (estimert)'; color = 'text-green-600' }
+    else if (score >= 55) { label = 'Moderat vannkvalitet (estimert)'; color = 'text-blue-600' }
+    else { label = 'Usikker vannkvalitet'; color = 'text-amber-600' }
 
-  // --- pH ---
-  const roundedPH = Math.round(pH * 100) / 100
-  if (pH >= 8.0) {
-    factors.push({ icon: '⚗️', text: `pH ~${roundedPH} — normalt for norsk kystvann`, good: true })
-  } else {
-    factors.push({ icon: '⚗️', text: `pH ~${roundedPH} — noe sur, kan pavirke skjell`, good: false })
-  }
-
-  // Samlet score — vektet
-  const score = Math.round(
-    doScore * 0.35 +
-    chlScore * 0.25 +
-    turbScore * 0.20 +
-    salScore * 0.15 +
-    (pH >= 8.0 ? 100 : 60) * 0.05
-  )
-
-  let label = ''
-  let color = ''
-  if (score >= 80) { label = 'Svært god vannkvalitet'; color = 'text-green-600' }
-  else if (score >= 65) { label = 'God vannkvalitet'; color = 'text-blue-600' }
-  else if (score >= 45) { label = 'Middels vannkvalitet'; color = 'text-amber-600' }
-  else { label = 'Dårlig vannkvalitet'; color = 'text-red-600' }
-
-  return {
-    dissolvedOxygen: do_mgL,
-    oxygenSaturation: doSaturation,
-    chlorophyll,
-    salinity,
-    turbidity,
-    pH: roundedPH,
-    score,
-    label,
-    color,
-    factors,
-    sources: [
-      'Løst oksygen: Garcia & Gordon (1992), Havforskningsinstituttet',
-      'Klorofyll-sesong: HI Kystovervåkningsprogram, NIVA',
-      'Saltholdighet: NorKyst800 (HI/ROMS), Albretsen et al. 2011',
-      'pH normer: HI forsuringsovervåking',
-    ],
+    return { zone: generalZone, score, label, color, factors, isEstimated: true }
   }
 }

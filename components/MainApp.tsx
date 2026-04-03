@@ -140,7 +140,7 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
         } catch { }
       }
       setSelected({ location: { lat, lon: lng, name: locName }, score, status: getStatus(score), wind: Math.round(weather.hourly?.wind_speed_10m?.[h] ?? 10), waveHeight: marineResult.waveHeight, seaTemp: marineResult.seaTemp, currentSpeed: marineResult.currentSpeed, currentDirection: marineResult.currentDirection, pressure: pressNow, pressureTrend, precipitation: precip, windDirection: windDir, sunrise: weather.daily?.sunrise?.[0] ?? null, sunset: weather.daily?.sunset?.[0] ?? null, visibilityScore: vis, hourly: weather.hourly,
-        waterQuality: calcWaterQuality(marineResult.seaTemp, precip, Math.round(weather.hourly?.wind_speed_10m?.[h] ?? 10), marineResult.waveHeight, lat, lng)
+        waterQuality: calcWaterQuality(lat, lng, marineResult.seaTemp, precip, Math.round(weather.hourly?.wind_speed_10m?.[h] ?? 10))
       })
     } catch { }
     // Fetch real tide data from Kartverket
@@ -684,58 +684,43 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
                 <div className="space-y-3">
                   {selected.waterQuality ? (
                     <>
-                      {/* Score */}
-                      <div className="text-center bg-blue-50 rounded-xl p-4">
-                        <div className="text-4xl font-medium text-gray-900">{selected.waterQuality.score}</div>
-                        <div className={'text-sm font-medium mt-1 ' + selected.waterQuality.color}>{selected.waterQuality.label}</div>
+                      {/* Zone name + score */}
+                      <div className={'rounded-xl p-4 border ' + (selected.waterQuality.score >= 65 ? 'bg-blue-50 border-blue-100' : selected.waterQuality.score >= 40 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200')}>
+                        <p className="text-xs font-medium text-gray-500 mb-1">{selected.waterQuality.zone.name}</p>
+                        <div className="flex items-center justify-between">
+                          <div className={'text-sm font-medium ' + selected.waterQuality.color}>{selected.waterQuality.label}</div>
+                          <div className="text-2xl font-medium text-gray-900">{selected.waterQuality.score}</div>
+                        </div>
+                        {selected.waterQuality.isEstimated && (
+                          <p className="text-xs text-gray-400 mt-1">Ingen spesifikke data for dette omradet</p>
+                        )}
                       </div>
 
-                      {/* Quick stats */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="bg-gray-50 rounded-lg p-2.5">
-                          <p className="text-xs text-gray-400">Løst oksygen</p>
-                          <p className="text-sm font-medium text-gray-900">{selected.waterQuality.dissolvedOxygen} mg/L</p>
-                          <p className="text-xs text-gray-400">{selected.waterQuality.oxygenSaturation}% metning</p>
-                        </div>
-                        <div className="bg-gray-50 rounded-lg p-2.5">
-                          <p className="text-xs text-gray-400">Saltholdighet</p>
-                          <p className="text-sm font-medium text-gray-900">~{selected.waterQuality.salinity} ppt</p>
-                          <p className="text-xs text-gray-400">Norsk kystvann</p>
-                        </div>
-                        <div className="bg-gray-50 rounded-lg p-2.5">
-                          <p className="text-xs text-gray-400">Klorofyll-a</p>
-                          <p className="text-sm font-medium text-gray-900 capitalize">{selected.waterQuality.chlorophyll}</p>
-                          <p className="text-xs text-gray-400">Alge-/næringsniva</p>
-                        </div>
-                        <div className="bg-gray-50 rounded-lg p-2.5">
-                          <p className="text-xs text-gray-400">Siktdyp</p>
-                          <p className="text-sm font-medium text-gray-900 capitalize">{selected.waterQuality.turbidity}</p>
-                          <p className="text-xs text-gray-400">pH ~{selected.waterQuality.pH}</p>
-                        </div>
+                      {/* Description */}
+                      <div className="bg-white border border-gray-200 rounded-xl p-3">
+                        <p className="text-xs text-gray-700 leading-relaxed">{selected.waterQuality.zone.description}</p>
                       </div>
 
-                      {/* Factor breakdown */}
-                      <div>
-                        <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Parametre</p>
-                        <div className="space-y-1.5">
-                          {selected.waterQuality.factors.map((f, i) => (
-                            <div key={i} className={'flex items-start gap-2 rounded-lg px-2.5 py-2 ' + (f.good ? 'bg-green-50' : 'bg-red-50')}>
-                              <span className="text-sm shrink-0">{f.icon}</span>
-                              <p className={'text-xs ' + (f.good ? 'text-green-800' : 'text-red-700')}>{f.text}</p>
-                            </div>
-                          ))}
+                      {/* Known issues + seasonal factors */}
+                      {selected.waterQuality.factors.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Paavirkningsfaktorer</p>
+                          <div className="space-y-1.5">
+                            {selected.waterQuality.factors.map((f, i) => (
+                              <div key={i} className={'flex items-start gap-2 rounded-lg px-2.5 py-2 ' + (f.good ? 'bg-green-50' : 'bg-red-50')}>
+                                <span className="text-sm shrink-0">{f.icon}</span>
+                                <p className={'text-xs ' + (f.good ? 'text-green-800' : 'text-red-700')}>{f.text}</p>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
+                      )}
 
-                      {/* Sources */}
+                      {/* Source */}
                       <div className="bg-gray-50 rounded-xl p-3">
-                        <p className="text-xs font-medium text-gray-500 mb-1">Datagrunnlag</p>
-                        <p className="text-xs text-gray-400">Vannkvalitet er estimert fra havtemperatur, nedbør, vind og årstid. Ikke direkte målt.</p>
-                        <div className="mt-2 space-y-0.5">
-                          {selected.waterQuality.sources.map((s, i) => (
-                            <p key={i} className="text-xs text-gray-400">· {s}</p>
-                          ))}
-                        </div>
+                        <p className="text-xs font-medium text-gray-500 mb-1">Kilde</p>
+                        <p className="text-xs text-gray-400">{selected.waterQuality.zone.source}</p>
+                        <a href="https://vann-nett.no" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 underline mt-1 block">Se Vann-Nett for lokale data →</a>
                       </div>
                     </>
                   ) : (
