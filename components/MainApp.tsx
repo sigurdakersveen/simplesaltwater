@@ -170,6 +170,7 @@ export default function MainApp({ user, initialFavorites }: {
         <div className="flex items-center gap-2">
           {user ? (
             <>
+              <button onClick={() => router.push('/map')} className="text-sm text-gray-600 border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-50">🗺 Kart</button>
               <button onClick={() => router.push('/log')} className="text-sm text-gray-600 border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-50">Fiskelogg</button>
               <button onClick={handleSignOut} className="text-sm text-gray-400 hover:text-gray-700">Logg ut</button>
             </>
