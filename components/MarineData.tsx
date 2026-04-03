@@ -1,4 +1,8 @@
-import { scoreWave, windDirectionLabel, formatSunTime, scoreSeaTemp, scorePressure, pressureLabel, moonPhase, scorePrecipitation } from '@/lib/fishing-score'
+import {
+  scoreWave, windDirectionLabel, formatSunTime, scoreSeaTemp,
+  scorePressure, pressureLabel, moonPhase, scorePrecipitation,
+  scoreCurrent, currentLabel, visibilityLabel
+} from '@/lib/fishing-score'
 
 type Props = {
   waveHeight: number | null
@@ -10,14 +14,23 @@ type Props = {
   pressure: number | null
   pressureTrend: number | null
   precipitation: number | null
+  currentSpeed: number | null
+  currentDirection: number | null
+  visibilityScore: number
+}
+
+function scoreColor(score: number) {
+  if (score >= 75) return 'text-green-600'
+  if (score >= 50) return 'text-amber-600'
+  return 'text-red-600'
 }
 
 export default function MarineData({
   waveHeight, seaTemp, windDirection, sunrise, sunset,
-  waveNote, pressure, pressureTrend, precipitation
+  waveNote, pressure, pressureTrend, precipitation,
+  currentSpeed, currentDirection, visibilityScore
 }: Props) {
   const waveScore = scoreWave(waveHeight)
-  const waveColor = waveScore >= 80 ? 'text-green-600' : waveScore >= 50 ? 'text-amber-600' : 'text-red-600'
   const waveLabel =
     waveHeight === null ? '—' :
     waveHeight < 0.3 ? 'Blikk stille' :
@@ -26,7 +39,6 @@ export default function MarineData({
     waveHeight <= 2.5 ? 'Røff sjø' : 'Farlig høy'
 
   const seaTempScore = scoreSeaTemp(seaTemp)
-  const seaTempColor = seaTempScore >= 80 ? 'text-green-600' : seaTempScore >= 50 ? 'text-amber-600' : 'text-red-600'
   const seaTempLabel =
     seaTemp === null ? '—' :
     seaTemp < 4 ? 'Svært kaldt' :
@@ -35,85 +47,83 @@ export default function MarineData({
     seaTemp <= 20 ? 'Varmt' : 'Svært varmt'
 
   const pressScore = scorePressure(pressure, pressureTrend)
-  const pressColor = pressScore >= 80 ? 'text-green-600' : pressScore >= 50 ? 'text-amber-600' : 'text-red-600'
-  const pLabel = pressureLabel(pressureTrend)
-
-  const precipScore = scorePrecipitation(precipitation)
-  const precipColor = precipScore >= 80 ? 'text-green-600' : precipScore >= 50 ? 'text-amber-600' : 'text-red-600'
-  const precipLabel =
-    precipitation === null ? '—' :
-    precipitation === 0 ? 'Ingen' :
-    precipitation < 1 ? 'Lett' :
-    precipitation < 5 ? 'Moderat' :
-    precipitation < 15 ? 'Kraftig' : 'Veldig kraftig'
-
+  const currentScore = scoreCurrent(currentSpeed)
   const moon = moonPhase(new Date())
+
+  const cells = [
+    {
+      label: 'Bølgehøyde',
+      value: waveHeight !== null ? `${waveHeight.toFixed(1)} m` : '—',
+      sub: waveLabel,
+      score: waveScore,
+    },
+    {
+      label: 'Vanntemperatur',
+      value: seaTemp !== null ? `${seaTemp.toFixed(1)}°C` : '—',
+      sub: seaTempLabel,
+      score: seaTempScore,
+    },
+    {
+      label: 'Lufttrykk',
+      value: pressure !== null ? `${Math.round(pressure)} hPa` : '—',
+      sub: pressureLabel(pressureTrend),
+      score: pressScore,
+    },
+    {
+      label: 'Nedbør',
+      value: precipitation !== null ? `${precipitation.toFixed(1)} mm` : '—',
+      sub: precipitation === 0 ? 'Ingen' : precipitation !== null && precipitation < 1 ? 'Lett' : precipitation !== null && precipitation < 5 ? 'Moderat' : precipitation !== null ? 'Kraftig' : '—',
+      score: scorePrecipitation(precipitation),
+    },
+    {
+      label: 'Strøm',
+      value: currentSpeed !== null ? `${currentSpeed.toFixed(2)} m/s` : '—',
+      sub: currentLabel(currentSpeed) + (currentDirection !== null ? ` · ${windDirectionLabel(currentDirection)}` : ''),
+      score: currentScore,
+    },
+    {
+      label: 'Sikt i vannet',
+      value: visibilityLabel(visibilityScore),
+      sub: 'Estimert',
+      score: visibilityScore,
+    },
+    {
+      label: 'Vindretning',
+      value: windDirection !== null ? windDirectionLabel(windDirection) : '—',
+      sub: windDirection !== null ? `${Math.round(windDirection)}°` : '',
+      score: 70,
+    },
+    {
+      label: 'Månefase',
+      value: moon.emoji,
+      sub: moon.name,
+      score: moon.score,
+    },
+    {
+      label: 'Soloppgang',
+      value: sunrise ? formatSunTime(sunrise) : '—',
+      sub: 'Beste morgenbit',
+      score: 80,
+    },
+    {
+      label: 'Solnedgang',
+      value: sunset ? formatSunTime(sunset) : '—',
+      sub: 'Beste kveldsbit',
+      score: 80,
+    },
+  ]
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4">
       <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Marin oversikt</p>
       <div className="grid grid-cols-2 gap-3">
-
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-400 mb-1">Bølgehøyde</p>
-          <p className="text-lg font-medium text-gray-900">
-            {waveHeight !== null ? `${waveHeight.toFixed(1)} m` : '—'}
-          </p>
-          <p className={`text-xs mt-0.5 ${waveColor}`}>{waveLabel}</p>
-        </div>
-
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-400 mb-1">Vanntemperatur</p>
-          <p className="text-lg font-medium text-gray-900">
-            {seaTemp !== null ? `${seaTemp.toFixed(1)}°C` : '—'}
-          </p>
-          <p className={`text-xs mt-0.5 ${seaTempColor}`}>{seaTempLabel}</p>
-        </div>
-
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-400 mb-1">Lufttrykk</p>
-          <p className="text-lg font-medium text-gray-900">
-            {pressure !== null ? `${Math.round(pressure)} hPa` : '—'}
-          </p>
-          <p className={`text-xs mt-0.5 ${pressColor}`}>{pLabel}</p>
-        </div>
-
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-400 mb-1">Nedbør nå</p>
-          <p className="text-lg font-medium text-gray-900">
-            {precipitation !== null ? `${precipitation.toFixed(1)} mm` : '—'}
-          </p>
-          <p className={`text-xs mt-0.5 ${precipColor}`}>{precipLabel}</p>
-        </div>
-
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-400 mb-1">Vindretning</p>
-          <p className="text-lg font-medium text-gray-900">
-            {windDirection !== null ? windDirectionLabel(windDirection) : '—'}
-          </p>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {windDirection !== null ? `${Math.round(windDirection)}°` : ''}
-          </p>
-        </div>
-
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-400 mb-1">Månefase</p>
-          <p className="text-lg font-medium text-gray-900">{moon.emoji}</p>
-          <p className="text-xs text-gray-500 mt-0.5">{moon.name}</p>
-        </div>
-
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-400 mb-1">Soloppgang</p>
-          <p className="text-lg font-medium text-gray-900">{sunrise ? formatSunTime(sunrise) : '—'}</p>
-          <p className="text-xs text-green-600 mt-0.5">Beste morgenbit</p>
-        </div>
-
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-400 mb-1">Solnedgang</p>
-          <p className="text-lg font-medium text-gray-900">{sunset ? formatSunTime(sunset) : '—'}</p>
-          <p className="text-xs text-amber-600 mt-0.5">Beste kveldsbit</p>
-        </div>
-
+        {cells.map(c => (
+          <div key={c.label} className="bg-gray-50 rounded-lg p-3">
+            <p className="text-xs text-gray-400 mb-1">{c.label}</p>
+            <p className="text-lg font-medium text-gray-900">{c.value}</p>
+            <p className={`text-xs mt-0.5 ${scoreColor(c.score)}`}>{c.sub}</p>
+          </div>
+        ))}
       </div>
 
       {waveNote && (
@@ -130,6 +140,13 @@ export default function MarineData({
         <div className="mt-3 bg-green-50 border border-green-100 rounded-lg px-3 py-2">
           <p className="text-xs text-green-700 font-medium">
             Lufttrykket faller raskt — fisken er trolig aktiv og biter godt nå
+          </p>
+        </div>
+      )}
+      {currentSpeed !== null && currentSpeed > 1.5 && (
+        <div className="mt-3 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+          <p className="text-xs text-amber-700 font-medium">
+            Sterk strøm — vanskelig å holde agnet på riktig dybde
           </p>
         </div>
       )}

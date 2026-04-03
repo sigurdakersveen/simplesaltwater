@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   calcScore, scoreWind, scoreCloud, scoreTemp, scoreHour,
   getStatus, simulateTide, scoreTide, tideLabel, moonPhase,
+  estimateVisibility,
 } from '@/lib/fishing-score'
 import { fetchMarineData } from '@/lib/marine'
 import LocationSearch from './LocationSearch'
@@ -35,9 +36,11 @@ export default function MainApp({ user, initialFavorites }: {
   const [favorites, setFavorites] = useState(initialFavorites)
   const [showLog, setShowLog] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
-  const [tideWeight, setTideWeight] = useState(0.20)
+  const [tideWeight, setTideWeight] = useState(0.15)
   const [waveHeight, setWaveHeight] = useState<number | null>(null)
   const [seaTemp, setSeaTemp] = useState<number | null>(null)
+  const [currentSpeed, setCurrentSpeed] = useState<number | null>(null)
+  const [currentDirection, setCurrentDirection] = useState<number | null>(null)
   const [waveNote, setWaveNote] = useState<string | null>(null)
   const [windDirection, setWindDirection] = useState<number | null>(null)
   const [sunrise, setSunrise] = useState<string | null>(null)
@@ -51,15 +54,10 @@ export default function MainApp({ user, initialFavorites }: {
   const fetchWeather = useCallback(async (lat: number, lon: number) => {
     setLoading(true)
     setHourly(null)
-    setWaveHeight(null)
-    setSeaTemp(null)
-    setWaveNote(null)
-    setWindDirection(null)
-    setSunrise(null)
-    setSunset(null)
-    setPressure(null)
-    setPressureTrend(null)
-    setPrecipitation(null)
+    setWaveHeight(null); setSeaTemp(null); setCurrentSpeed(null)
+    setCurrentDirection(null); setWaveNote(null); setWindDirection(null)
+    setSunrise(null); setSunset(null); setPressure(null)
+    setPressureTrend(null); setPrecipitation(null)
     try {
       const [weatherRes, marineResult] = await Promise.all([
         fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=wind_speed_10m,cloud_cover,temperature_2m,winddirection_10m,surface_pressure,precipitation&daily=sunrise,sunset&forecast_days=3&wind_speed_unit=kmh&timezone=auto`),
@@ -71,17 +69,18 @@ export default function MainApp({ user, initialFavorites }: {
       setSunset(weather.daily?.sunset?.[0] ?? null)
       const h = new Date().getHours()
       setWindDirection(weather.hourly?.winddirection_10m?.[h] ?? null)
-      setPrecipitation(weather.hourly?.precipitation?.[h] ?? null)
+      const precip = weather.hourly?.precipitation?.[h] ?? null
+      setPrecipitation(precip)
       const pressNow = weather.hourly?.surface_pressure?.[h] ?? null
-      const pressThreeHoursAgo = weather.hourly?.surface_pressure?.[Math.max(0, h - 3)] ?? null
+      const pressThreeAgo = weather.hourly?.surface_pressure?.[Math.max(0, h - 3)] ?? null
       setPressure(pressNow)
-      if (pressNow !== null && pressThreeHoursAgo !== null) {
-        setPressureTrend(pressNow - pressThreeHoursAgo)
-      }
+      if (pressNow !== null && pressThreeAgo !== null) setPressureTrend(pressNow - pressThreeAgo)
       setWaveHeight(marineResult.waveHeight)
       setSeaTemp(marineResult.seaTemp)
-      const usedSamePoint = marineResult.usedLat === lat && marineResult.usedLon === lon
-      if (!usedSamePoint && (marineResult.waveHeight !== null || marineResult.seaTemp !== null)) {
+      setCurrentSpeed(marineResult.currentSpeed)
+      setCurrentDirection(marineResult.currentDirection)
+      const usedSame = marineResult.usedLat === lat && marineResult.usedLon === lon
+      if (!usedSame && (marineResult.waveHeight !== null || marineResult.seaTemp !== null)) {
         const dist = Math.round(Math.sqrt(
           Math.pow((marineResult.usedLat - lat) * 111, 2) +
           Math.pow((marineResult.usedLon - lon) * 111 * Math.cos(lat * Math.PI / 180), 2)
@@ -93,9 +92,7 @@ export default function MainApp({ user, initialFavorites }: {
   }, [])
 
   function handleLocationSelect(loc: Location) {
-    setLocation(loc)
-    setActiveDay(0)
-    setShowLog(false)
+    setLocation(loc); setActiveDay(0); setShowLog(false)
     fetchWeather(loc.lat, loc.lon)
   }
 
@@ -129,20 +126,19 @@ export default function MainApp({ user, initialFavorites }: {
     if (!hourly) return null
     const start = dayOffset * 24
     const moon = moonPhase(new Date())
+    const month = new Date().getMonth() + 1
+    const visScore = estimateVisibility(precipitation, waveHeight, month)
     const scores = Array.from({ length: 24 }, (_, h) => {
       const i = start + h
       return calcScore(
         hourly.wind_speed_10m[i] ?? 10,
         hourly.cloud_cover[i] ?? 50,
         hourly.temperature_2m[i] ?? 12,
-        h,
-        tideWeight,
-        waveHeight,
+        h, tideWeight, waveHeight,
         hourly.surface_pressure[i] ?? null,
-        pressureTrend,
-        seaTemp,
+        pressureTrend, seaTemp,
         hourly.precipitation[i] ?? null,
-        moon.score
+        moon.score, currentSpeed, visScore
       )
     })
     const avg = Math.round(scores.reduce((a, b) => a + b, 0) / 24)
@@ -161,9 +157,11 @@ export default function MainApp({ user, initialFavorites }: {
   }
 
   const nowH = new Date().getHours()
+  const month = new Date().getMonth() + 1
   const dayData = hourly ? getDayData(activeDay) : null
   const st = dayData ? getStatus(dayData.avg) : null
   const moon = moonPhase(new Date())
+  const visibilityScore = estimateVisibility(precipitation, waveHeight, month)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -248,6 +246,9 @@ export default function MainApp({ user, initialFavorites }: {
                   pressure={pressure}
                   pressureTrend={pressureTrend}
                   precipitation={precipitation}
+                  currentSpeed={currentSpeed}
+                  currentDirection={currentDirection}
+                  visibilityScore={visibilityScore}
                 />
 
                 <div className="bg-white border border-gray-200 rounded-xl p-4">

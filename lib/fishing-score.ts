@@ -1,11 +1,3 @@
-export const DEFAULT_WEIGHTS = {
-  wind: 0.25,
-  time: 0.25,
-  cloud: 0.15,
-  temp: 0.15,
-  tide: 0.20,
-}
-
 export function scoreWind(v: number) {
   if (v < 3) return 60
   if (v <= 15) return 100
@@ -84,11 +76,11 @@ export function scoreSeaTemp(t: number | null): number {
 
 export function scorePressure(hPa: number | null, trend: number | null): number {
   if (hPa === null) return 70
-  if (trend !== null && trend < -2) return 95  // fallende raskt — fisken biter
-  if (trend !== null && trend < -0.5) return 85 // fallende sakte
-  if (trend !== null && trend > 2) return 30    // stigende raskt — fisken trekker seg
-  if (hPa > 1020) return 45                     // høyt stabilt
-  if (hPa >= 1005) return 75                    // normalt
+  if (trend !== null && trend < -2) return 95
+  if (trend !== null && trend < -0.5) return 85
+  if (trend !== null && trend > 2) return 30
+  if (hPa > 1020) return 45
+  if (hPa >= 1005) return 75
   return 60
 }
 
@@ -99,6 +91,61 @@ export function scorePrecipitation(mm: number | null): number {
   if (mm < 5) return 60
   if (mm < 15) return 35
   return 15
+}
+
+// Strøm: moderat strøm er bra for fiske, for sterk er dårlig
+export function scoreCurrent(speed: number | null): number {
+  if (speed === null) return 70
+  if (speed < 0.1) return 55   // stille — lite næring i bevegelse
+  if (speed <= 0.5) return 100 // moderat — ideelt
+  if (speed <= 1.0) return 80  // litt sterk men OK
+  if (speed <= 1.5) return 50  // sterk
+  return 20                    // veldig sterk — vanskelig å fiske
+}
+
+export function currentLabel(speed: number | null): string {
+  if (speed === null) return 'Ukjent'
+  if (speed < 0.1) return 'Stille'
+  if (speed <= 0.5) return 'Moderat'
+  if (speed <= 1.0) return 'Sterk'
+  if (speed <= 1.5) return 'Svært sterk'
+  return 'Ekstrem'
+}
+
+// Sikt: estimert fra nedbør, bølgehøyde og årstid
+export function estimateVisibility(
+  precipitation: number | null,
+  waveHeight: number | null,
+  month: number
+): number {
+  let score = 100
+
+  // Nedbør reduserer sikt
+  if (precipitation !== null) {
+    if (precipitation > 10) score -= 40
+    else if (precipitation > 3) score -= 25
+    else if (precipitation > 0) score -= 10
+  }
+
+  // Høye bølger virvler opp partikler
+  if (waveHeight !== null) {
+    if (waveHeight > 2) score -= 30
+    else if (waveHeight > 1) score -= 15
+    else if (waveHeight > 0.5) score -= 5
+  }
+
+  // Algesesong (sommer = dårligere sikt i norske farvann)
+  if (month >= 5 && month <= 8) score -= 10
+
+  return Math.max(0, Math.min(100, score))
+}
+
+export function visibilityLabel(score: number): string {
+  if (score >= 85) return 'Utmerket'
+  if (score >= 65) return 'God'
+  if (score >= 45) return 'Moderat'
+  if (score >= 25) return 'Dårlig'
+  return 'Svært dårlig'
 }
 
 export function pressureLabel(trend: number | null): string {
@@ -140,27 +187,31 @@ export function calcScore(
   cloud: number,
   temp: number,
   hour: number,
-  tideWeight: number = 0.20,
+  tideWeight: number = 0.15,
   waveHeight: number | null = null,
   pressure: number | null = null,
   pressureTrend: number | null = null,
   seaTemp: number | null = null,
   precipitation: number | null = null,
-  moonScore: number = 70
+  moonScore: number = 70,
+  currentSpeed: number | null = null,
+  visibilityScore: number = 80
 ): number {
-  const base =
-    scoreWind(wind) * 0.20 +
-    scoreHour(hour) * 0.20 +
-    scoreCloud(cloud) * 0.10 +
-    scoreTemp(temp) * 0.10 +
-    scoreTide(hour) * tideWeight +
-    scorePressure(pressure, pressureTrend) * 0.10 +
-    moonScore * 0.05 +
-    scoreSeaTemp(seaTemp) * 0.10 +
-    scorePrecipitation(precipitation) * 0.10 +
-    scoreWave(waveHeight) * 0.05
+  const score =
+    scoreWind(wind)                           * 0.18 +
+    scoreHour(hour)                           * 0.18 +
+    scoreCloud(cloud)                         * 0.08 +
+    scoreTemp(temp)                           * 0.07 +
+    scoreTide(hour)                           * tideWeight +
+    scorePressure(pressure, pressureTrend)    * 0.10 +
+    moonScore                                 * 0.05 +
+    scoreSeaTemp(seaTemp)                     * 0.08 +
+    scorePrecipitation(precipitation)         * 0.07 +
+    scoreWave(waveHeight)                     * 0.05 +
+    scoreCurrent(currentSpeed)                * 0.07 +
+    visibilityScore                           * 0.07
 
-  return Math.round(Math.min(100, Math.max(0, base)))
+  return Math.round(Math.min(100, Math.max(0, score)))
 }
 
 export function getStatus(score: number) {
