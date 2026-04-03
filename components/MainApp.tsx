@@ -167,6 +167,9 @@ export default function MainApp({ user, initialFavorites }: { user: any; initial
       }
       map.on('click', async (e: any) => {
         const { lat, lng } = e.latlng
+        const currentZoom = map.getZoom()
+        const targetZoom = currentZoom < 10 ? 11 : currentZoom > 14 ? 13 : currentZoom
+        map.setView([lat, lng], targetZoom, { animate: true, duration: 0.5 })
         if (markerRef.current) markerRef.current.remove()
         markerRef.current = L.marker([lat, lng]).addTo(map)
         await fetchPoint(lat, lng)
