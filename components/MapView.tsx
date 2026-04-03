@@ -263,7 +263,7 @@ export default function MapView() {
                     rel="noopener noreferrer"
                     className="inline-block mt-2 text-xs text-blue-600 underline"
                   >
-                    Se blåskjellvarsel på Mattilsynet.no →
+                    Se blåskjellvarsel på Mattilsynet.no &#8594;
                   </a>
                 </div>
               )}
