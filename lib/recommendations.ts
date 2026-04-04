@@ -66,7 +66,7 @@ export function getRecommendation(input: RecommendationInput): Recommendation {
   if ((waveHeight ?? 0) > 1.2) reasons.push('moderate bolger')
   const tide = tideLabel(nowH)
   if (tide === 'Stigende') reasons.push('stigende tidevann')
-  if (tide === 'Hoyvann' || tide === 'Høyvann') reasons.push('hoyvann — bra for fiske')
+  if (tide === 'Høyvann') reasons.push('høyvann — bra for fiske')
   if ((precipitation ?? 0) > 3) reasons.push('kraftig nedbor reduserer sikt')
   if (fishReasons[fishType]) reasons.push(fishReasons[fishType])
   const reasonText = reasons.slice(0, 3).join(', ')
