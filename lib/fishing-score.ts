@@ -59,12 +59,14 @@ export function scoreSeaTemp(temp: number | null): number {
   return 50
 }
 
-export function scorePressure(trend: number | null): number {
-  if (trend == null) return 60
-  if (trend < -3) return 90
-  if (trend < -1) return 80
-  if (trend >= -1 && trend <= 1) return 65
-  if (trend < 3) return 50
+export function scorePressure(pressureOrTrend: number | null, trend?: number | null): number {
+  // Supports both scorePressure(trend) and scorePressure(pressure, trend)
+  const t = trend !== undefined ? trend : pressureOrTrend
+  if (t == null) return 60
+  if (t < -3) return 90
+  if (t < -1) return 80
+  if (t >= -1 && t <= 1) return 65
+  if (t < 3) return 50
   return 35
 }
 
