@@ -218,3 +218,12 @@ export function visibilityLabel(score: number): string {
   if (score >= 40) return 'Dårlig'
   return 'Meget dårlig'
 }
+
+export function scorePrecipitation(mm: number | null): number {
+  if (mm == null) return 80
+  if (mm === 0) return 100
+  if (mm < 1) return 90
+  if (mm < 3) return 70
+  if (mm < 6) return 45
+  return 20
+}
