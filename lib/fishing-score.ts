@@ -186,3 +186,81 @@ export function visibilityLabel(score: number): string {
   if (score >= 40) return 'Dårlig'
   return 'Meget dårlig'
 }
+
+// ─── Score-funksjoner for marine parametre (brukt av MapView) ─────────────────
+
+export function scoreCurrent(speed: number | null): number {
+  if (speed == null) return 70
+  if (speed < 0.1) return 45   // for stille
+  if (speed < 0.3) return 80
+  if (speed < 0.7) return 100
+  if (speed < 1.2) return 60
+  return 25
+}
+
+export function scoreWave(height: number | null): number {
+  if (height == null) return 70
+  if (height < 0.3) return 90
+  if (height < 0.8) return 100
+  if (height < 1.5) return 70
+  if (height < 2.5) return 35
+  return 10
+}
+
+export function scoreSeaTemp(temp: number | null): number {
+  if (temp == null) return 65
+  if (temp < 2) return 30
+  if (temp < 6) return 55
+  if (temp < 12) return 85
+  if (temp <= 18) return 100
+  if (temp <= 22) return 75
+  return 45
+}
+
+export function scorePressure(trend: number | null): number {
+  if (trend == null) return 65
+  if (trend < -3) return 90   // raskt fallende = bra
+  if (trend < -1) return 80
+  if (trend <= 1) return 65   // stabilt
+  if (trend <= 3) return 55
+  return 40                   // stigende = dårlig
+}
+
+// ─── Score-funksjoner for enkeltparametre (brukt av MapView o.l.) ─────────────
+
+export function scoreCurrent(speed: number | null): number {
+  if (speed == null) return 60
+  if (speed < 0.1) return 45   // for stille
+  if (speed <= 0.4) return 100
+  if (speed <= 0.8) return 75
+  if (speed <= 1.2) return 45
+  return 20
+}
+
+export function scoreWave(height: number | null): number {
+  if (height == null) return 70
+  if (height < 0.3) return 100
+  if (height <= 0.8) return 90
+  if (height <= 1.5) return 65
+  if (height <= 2.5) return 30
+  return 10
+}
+
+export function scoreSeaTemp(temp: number | null): number {
+  if (temp == null) return 60
+  if (temp < 2) return 25
+  if (temp < 6) return 55
+  if (temp <= 14) return 100
+  if (temp <= 18) return 85
+  if (temp <= 22) return 70
+  return 50
+}
+
+export function scorePressure(trend: number | null): number {
+  if (trend == null) return 60
+  if (trend < -3) return 90   // kraftig fall = fisken biter
+  if (trend < -1) return 80
+  if (trend >= -1 && trend <= 1) return 65
+  if (trend < 3) return 50
+  return 35   // stigende trykk = fisken trekker seg
+}
